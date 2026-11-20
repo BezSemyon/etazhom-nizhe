@@ -438,6 +438,22 @@ body[data-app="poster"] #head{display:none}
 .wpart.wcol .row{align-items:flex-start}
 .wbtn{width:100%;justify-content:center;margin-top:6px;padding:12px}
 
+/* ===== Чеки ===== */
+.rcbox{margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.rcrow{display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px dashed var(--line);font-size:13.5px}
+.rcrow:first-of-type{border-top:0}
+.rcrow .ri{font-size:18px}
+.pulse{color:var(--orange);animation:pl 1s infinite alternate}
+@keyframes pl{from{opacity:.3}to{opacity:1}}
+.paper{background:#fffef8;border:1px solid #e9e4d4;border-radius:6px;padding:16px 18px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.45;box-shadow:0 2px 0 #f1ecdc}
+.paper .c{text-align:center}.paper .b{font-weight:700}.paper .big{font-size:15px}
+.paper .hr{border-top:1px dashed #cfc8b2;margin:8px 0}
+.paper .row{display:flex;gap:6px}
+.paper .pl{margin:4px 0}
+.paper .mk{color:#7b5cc4}
+.paper .rcqr{width:120px;height:120px;margin:10px auto 0}
+.demo-stamp{text-align:center;font-size:10.5px;font-weight:700;letter-spacing:.3px;color:#b4442f;border:1px dashed #e0a596;border-radius:6px;padding:3px 6px;margin-bottom:10px;font-family:var(--font)}
+
 .site-head,.admin-head{top:var(--dbh,38px)}
 </style>
 </head>
@@ -856,7 +872,8 @@ function qrSVG(text, cls = 'qr') {
 const OPEN_H = 7.5, CLOSE_H = 22.5, SCALE = 0.6, HISTORY_DAYS = 28;
 const FIT_W = [1.2, 1.05, 1.15, 1.05, 0.9, 0.8, 0.65];
 const FAM_W = [0.8, 0.8, 0.85, 0.9, 1.2, 1.5, 1.4];
-const DEFAULT_SETTINGS = { safety: 20, growth: 0, promo: true, stations: { hot: 3, cold: 2, bar: 2 }, packMin: 2, deliver: { locker: 5, counter: 4, cafe: 0 }, holdMax: 10 };
+const DEFAULT_SETTINGS = { safety: 20, growth: 0, promo: true, stations: { hot: 3, cold: 2, bar: 2 }, packMin: 2, deliver: { locker: 5, counter: 4, cafe: 0 }, holdMax: 10,
+  fiscal: { scheme: 'two', sno: 'usn', vat: 'none', subject: 'goods', sbpDefault: true, cardFee: 3.5, sbpFee: 0.4, feeVat: 22 } };
 const STATUS = {
   paid:       { short: 'Принят', name: 'Принят, ждёт старта на кухне', color: 'blue' },
   cooking:    { short: 'Готовится', name: 'Готовится', color: 'orange' },
@@ -867,7 +884,7 @@ const STATUS = {
   cancelled:  { short: 'Отменён', name: 'Отменён, деньги возвращены', color: 'red' },
 };
 const ACTIVE = ['paid', 'cooking', 'ready', 'delivering'];
-const CAT_V = 5;
+const CAT_V = 6;
 
 /* ===== Сборка демо-данных ===== */
 function dishFromSpec(s) {
@@ -927,7 +944,8 @@ function buildOrder(cat, items, extra) {
 }
 function bagSize(o) { if (o.items.some(i => i.type === 'set' || i.type === 'ration') || o.items.filter(i => !i.drink).reduce((s, i) => s + i.q, 0) >= 4) return 'L'; if (o.items.some(i => !i.drink && (i.st === 'hot'))) return 'M'; return 'S'; }
 function buildSeedOrders(cat) {
-  const now = Date.now(), used = new Set();
+  const now = Date.now(), used = new Set(), fdRef = { v: 1180 }, emails = ['anna.k@mail.ru', '', 'ksenia.fit@yandex.ru', 'maria@inbox.ru', '', 'elena.s@gmail.com', '', 'sergey.p@mail.ru', ''];
+  let ix = 0;
   const no = () => { let n; do { n = String(100 + Math.floor(Math.random() * 900)); } while (used.has(n)); used.add(n); return n; };
   const mk = (name, phone, mode, items, readyIn, status, extra = {}) => {
     const o = buildOrder(cat, items, { no: no(), name, phone, mode, readyAt: ceilMin(now + readyIn * MIN), status, payMethod: Math.random() > .5 ? 'card' : 'sbp', demo: true, comment: extra.comment || '' });
@@ -939,6 +957,7 @@ function buildSeedOrders(cat) {
     if (k >= 3) o.history.delivering = o.readyAt - 9 * MIN;
     if (k >= 4) { o.pickTok = rndTok('P-'); o.history.placed = o.readyAt - 3 * MIN; if (o.cup.need) o.cup.placedAt = o.history.placed; if (o.bag.need && mode === 'gym') { o.bag.cell = extra.cell; o.bag.depositedAt = o.history.placed; } if (mode === 'cafe') o.shelfAt = o.history.placed; }
     if (k >= 5) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; if (o.cup.need) o.cup.pickedAt = o.history.done; }
+    o.email = emails[ix++ % emails.length]; seedReceipts(o, cat.settings.fiscal, fdRef);
     return o;
   };
   return [
@@ -965,6 +984,7 @@ let DISH = {}, ING = {}, SUP = {};
 let _cache = {};
 function reindex() {
   if (!S.catalog.settings.stations) S.catalog.settings = Object.assign(clone(DEFAULT_SETTINGS), S.catalog.settings);
+  if (!S.catalog.settings.fiscal) S.catalog.settings.fiscal = clone(DEFAULT_SETTINGS.fiscal);
   DISH = Object.fromEntries(S.catalog.dishes.map(d => [d.id, d]));
   ING = Object.fromEntries(S.catalog.ingredients.map(i => [i.id, i]));
   SUP = Object.fromEntries(S.catalog.suppliers.map(s => [s.id, s]));
@@ -1202,7 +1222,7 @@ function addMove(ing, qty, type, note) { S.catalog.moves.unshift({ id: uid('m'),
 function writeOffItems(items, type, note) {
   items.forEach(it => { const d = DISH[it.d]; if (!d) return; d.recipe.forEach(x => { const i = ING[x.ing]; if (!i) return; i.stock = Math.max(0, +(i.stock - x.qty * it.q).toFixed(2)); addMove(x.ing, -x.qty * it.q, type, note); }); });
 }
-function mark(o, status) { o.status = status; o.history = o.history || {}; o.history[status] = Date.now(); }
+function mark(o, status) { o.status = status; o.history = o.history || {}; o.history[status] = Date.now(); if (status === 'done') fiscalOnDone(o); }
 function refreshStatus(o) {
   if (o.status === 'cancelled' || o.status === 'done') return;
   const allDone = o.tasks.every(t => t.done), anyStart = o.tasks.some(t => t.start);
@@ -1217,7 +1237,7 @@ function taskStart(oid, ix) {
 }
 function taskDone(oid, ix) { const o = clone(S.orders[oid]); const t = o.tasks[ix]; if (!t) return; if (!t.start) t.start = Date.now(); t.done = Date.now(); refreshStatus(o); saveOrder(o); }
 function packDone(oid) { const o = clone(S.orders[oid]); o.pack.done = Date.now(); refreshStatus(o); saveOrder(o); }
-function cancelOrder(oid) { const o = clone(S.orders[oid]); if (o.tasks.some(t => t.start)) return false; mark(o, 'cancelled'); saveOrder(o); return true; }
+function cancelOrder(oid) { const o = clone(S.orders[oid]); if (o.tasks.some(t => t.start)) return false; mark(o, 'cancelled'); fiscalOnCancel(o); saveOrder(o); return true; }
 function newOrderNo() { const used = new Set(Object.values(S.orders).filter(o => sameDay(o.createdAt, Date.now())).map(o => o.no)); let n; do { n = String(100 + Math.floor(Math.random() * 900)); } while (used.has(n)); return n; }
 function allPlaced(o) { if (o.mode === 'cafe') return !!o.shelfAt; return (!o.cup.need || o.cup.placedAt) && (!o.bag.need || o.bag.depositedAt); }
 function takeOrder(oid) { const o0 = S.orders[oid]; if (!o0 || o0.status !== 'ready') return null; let cell = null; if (o0.mode === 'gym' && o0.bag.need) { cell = allocateCell(oid); if (!cell) { toast('Нет свободных ячеек подходящего размера', 'warn'); return null; } } const o = clone(S.orders[oid]); mark(o, 'delivering'); saveOrder(o); return cell; }
@@ -1330,11 +1350,122 @@ function toast(msg, kind = 'info', ms = 3800) {
   box.appendChild(el); setTimeout(() => el.classList.add('out'), ms); setTimeout(() => el.remove(), ms + 400);
 }
 
+/* ===== Платежи и чеки (имитация связки ЮKassa → облачная касса Orange Data → Контур.ОФД) ===== */
+const VAT = { none: ['Без НДС', 0], vat5: ['НДС 5%', 5], vat7: ['НДС 7%', 7], vat10: ['НДС 10%', 10], vat22: ['НДС 22%', 22] };
+const SNO = { usn: 'УСН доходы', usn_ie: 'УСН доходы минус расходы', osn: 'ОСН' };
+const SUBJ = { goods: 'Товар', service: 'Услуга' };
+const RC_TYPE = { income: 'Приход', refund: 'Возврат прихода' };
+const RC_MODE = { prepay: 'Предоплата 100%', full: 'Полный расчёт' };
+const RC_PAY = { card: 'Безналичными · карта', sbp: 'Безналичными · СБП', offset: 'Зачёт предоплаты' };
+/* реквизиты в прототипе условные — это не фискальные данные */
+const KKT = { org: 'ООО «Этажом ниже» (демо)', inn: '0000000000', rn: '0000000000012345', fn: '9999078900001234', kkt: 'Orange Data, облачная касса', ofd: 'Контур.ОФД', acq: 'ЮKassa' };
+
+const fset = () => { const s = S.catalog.settings; if (!s.fiscal) s.fiscal = clone(DEFAULT_SETTINGS.fiscal); return s.fiscal; };
+const isMarked = id => DRINK_SUB[id] === 'water';             // вода и напитки в бутылках — маркировка «Честный знак»
+function hashNum(str, mod) { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h % mod; }
+const gtinOf = id => '0460' + String(hashNum('gtin' + id, 1e9)).padStart(9, '0') + '7';
+const fpOf = seed => String(hashNum('fp' + seed, 1e10)).padStart(10, '0');
+function maskContact(c) {
+  if (!c) return '—'; if (c.includes('@')) return c.replace(/^(.).*?(@.*)$/, '$1***$2');
+  const n = (c.match(/\d/g) || []).length; let k = 0; return c.replace(/\d/g, d => (k++ >= 1 && k <= n - 4 ? '•' : d));
+}
+const validEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
+
+function fiscalSnapshot(f) { return { scheme: f.scheme, vat: f.vat, subject: f.subject, sno: f.sno }; }
+function maxFd(extra) { let m = 1200; Object.values(S.orders).forEach(o => (o.receipts || []).forEach(r => { if (r.fd > m) m = r.fd; })); (extra || []).forEach(r => { if (r.fd > m) m = r.fd; }); return m; }
+function makeReceipt(o, type, mode, pay, at, fd) {
+  const fs = o.fiscal || fiscalSnapshot(DEFAULT_SETTINGS.fiscal), t = at || Date.now();
+  const items = o.items.map(it => ({ n: it.n, q: it.q, price: it.price, sum: it.price * it.q, mk: isMarked(it.d), gtin: isMarked(it.d) ? gtinOf(it.d) : null }));
+  return { id: uid('r'), type, mode, pay, at: t, sum: items.reduce((s, x) => s + x.sum, 0), items, vat: fs.vat, subject: fs.subject, sno: fs.sno,
+    contact: o.email || o.phone, ch: o.email ? 'email' : 'sms', fd: fd || maxFd(o.receipts) + 1, fp: fpOf(o.id + type + mode + t), ofdAt: t + 1500 + hashNum(o.id + t, 1500) };
+}
+function addReceipt(o, type, mode, pay) {
+  o.receipts = o.receipts || [];
+  const r = makeReceipt(o, type, mode, pay); o.receipts.push(r);
+  const wait = r.ofdAt - Date.now() + 80; if (wait > 0) setTimeout(() => { _cache = {}; render(); }, wait);
+  return r;
+}
+const rcInOfd = r => Date.now() >= r.ofdAt;
+const rcTitle = r => `${RC_TYPE[r.type]} · ${RC_MODE[r.mode]}`;
+const rcVatSum = r => { const p = VAT[r.vat] ? VAT[r.vat][1] : 0; return p ? Math.round(r.sum * p / (100 + p) * 100) / 100 : 0; };
+const rcQR = r => { const d = new Date(r.at), p = n => String(n).padStart(2, '0'); return `t=${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}&s=${r.sum.toFixed(2)}&fn=${KKT.fn}&i=${r.fd}&fp=${r.fp}&n=${r.type === 'income' ? 1 : 2}`; };
+const rcShift = r => 40 + Math.floor((startOfDay(new Date(r.at)).getTime() - startOfDay(new Date(2026, 9, 1)).getTime()) / 864e5);
+
+/* ----- события заказа ----- */
+function fiscalOnPaid(o) {
+  o.fiscal = fiscalSnapshot(fset());
+  addReceipt(o, 'income', o.fiscal.scheme === 'one' ? 'full' : 'prepay', o.payMethod);
+}
+const needsClosing = o => o.fiscal && o.fiscal.scheme === 'two' && (o.receipts || []).some(r => r.type === 'income' && r.mode === 'prepay') && !(o.receipts || []).some(r => r.type === 'income' && r.mode === 'full') && !(o.receipts || []).some(r => r.type === 'refund');
+/* вызывается при статусе «Получен»: второй чек «Полный расчёт» с зачётом предоплаты */
+function fiscalOnDone(o) { if (needsClosing(o)) return addReceipt(o, 'income', 'full', 'offset'); return null; }
+function fiscalOnCancel(o) {
+  (o.receipts || []).filter(r => r.type === 'income').forEach(r => { if (!o.receipts.some(x => x.type === 'refund' && x.mode === r.mode)) addReceipt(o, 'refund', r.mode, r.pay); });
+}
+/* закрытие дня: «Полный расчёт» по заказам, которые уже доставлены, но клиент не нажал «Заказ забрал» */
+function closeDeliveredReceipts() {
+  let n = 0;
+  Object.values(S.orders).forEach(o0 => { if (o0.status !== 'placed' || !needsClosing(o0)) return; const o = clone(o0); addReceipt(o, 'income', 'full', 'offset'); o.closedByDay = true; saveOrder(o); n++; });
+  return n;
+}
+function seedReceipts(o, fiscalSettings, fdRef) {
+  o.fiscal = fiscalSnapshot(fiscalSettings); o.receipts = [];
+  const push = (type, mode, pay, at) => { const r = makeReceipt(o, type, mode, pay, at, ++fdRef.v); r.ofdAt = at + 2000; o.receipts.push(r); };
+  push('income', o.fiscal.scheme === 'one' ? 'full' : 'prepay', o.payMethod, o.createdAt + 40e3);
+  if (o.status === 'done' && o.fiscal.scheme === 'two') push('income', 'full', 'offset', o.history.done);
+}
+
+/* ----- эквайринг: оценка комиссии ----- */
+function acquiringStats(orders) {
+  const f = fset(), paid = orders.filter(o => o.status !== 'cancelled');
+  const card = paid.filter(o => o.payMethod !== 'sbp').reduce((s, o) => s + o.total, 0), sbp = paid.filter(o => o.payMethod === 'sbp').reduce((s, o) => s + o.total, 0);
+  const cardRate = f.cardFee / 100 * (1 + (f.feeVat || 0) / 100), sbpRate = f.sbpFee / 100;
+  const fee = card * cardRate + sbp * sbpRate, ifAllSbp = (card + sbp) * sbpRate;
+  return { card, sbp, fee, save: fee - ifAllSbp, share: card + sbp ? sbp / (card + sbp) * 100 : 0, cardN: paid.filter(o => o.payMethod !== 'sbp').length, sbpN: paid.filter(o => o.payMethod === 'sbp').length };
+}
+
+/* ----- отображение чека ----- */
+function receiptRows(o) {
+  const list = o.receipts || [];
+  if (!list.length) return '';
+  const rows = list.map(r => `<div class="rcrow"><span class="ri">🧾</span><div style="flex:1"><b>${rcTitle(r)}</b> · ${fmtRub(r.sum)}<div class="tiny muted">${rcInOfd(r) ? `принят Контур.ОФД · ${r.ch === 'email' ? 'отправлен на ' : 'SMS на '}${esc(maskContact(r.contact))}` : '<span class="pulse">●</span> облачная касса формирует чек…'}</div></div><button class="btn sm" data-act="rc-open" data-id="${o.id}" data-r="${r.id}">Открыть</button></div>`).join('');
+  const wait = needsClosing(o) && o.status !== 'cancelled' ? `<div class="tiny muted" style="margin-top:6px">Второй чек «Полный расчёт» придёт, когда вы ${o.mode === 'cafe' ? 'заберёте заказ' : 'нажмёте «Заказ забрал»'}.</div>` : '';
+  return `<div class="rcbox"><div class="tiny muted" style="margin-bottom:6px">Электронные чеки</div>${rows}${wait}</div>`;
+}
+function receiptModal(o, r, back) {
+  const vatName = VAT[r.vat] ? VAT[r.vat][0] : 'Без НДС', vs = rcVatSum(r);
+  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(430px,100%)">
+    <div class="mh">${back ? `<button class="x" data-act="track" data-id="${o.id}" title="К заказу">‹</button>` : ''}<h3>Чек №${r.fd}</h3><button class="x" data-act="close-modal">×</button></div>
+    <div class="mb"><div class="paper">
+      <div class="demo-stamp">ДЕМО · не является фискальным документом</div>
+      <div class="c b">${esc(KKT.org)}</div><div class="c tiny">ИНН ${KKT.inn} · ${SNO[r.sno] || ''}</div>
+      <div class="c tiny">Место расчётов: ${esc(SITE_URL.replace(/^https?:\/\//, '').replace(/[#?].*$/, ''))}</div>
+      <div class="c b" style="margin:10px 0 2px">КАССОВЫЙ ЧЕК · ${RC_TYPE[r.type].toUpperCase()}</div>
+      <div class="c tiny">${fmtDate(r.at)} ${fmtTime(r.at)} · смена №${rcShift(r)} · заказ №${o.no}</div>
+      <div class="hr"></div>
+      ${r.items.map((it, i) => `<div class="pl"><div class="row"><span>${i + 1}. ${esc(it.n)}</span><span class="spacer"></span><b>${fmtNum(it.sum)}.00</b></div>
+        <div class="tiny muted">${it.q} × ${fmtNum(it.price)}.00 · ${RC_MODE[r.mode]} · ${it.mk ? 'Товар' : SUBJ[r.subject]} · ${vatName}</div>
+        ${it.mk ? `<div class="tiny mk">GTIN ${it.gtin} · отраслевой реквизит 1265: mode=horeca</div>` : ''}</div>`).join('')}
+      <div class="hr"></div>
+      <div class="row b big"><span>ИТОГ</span><span class="spacer"></span><span>${fmtNum(r.sum)}.00</span></div>
+      <div class="row"><span>${RC_PAY[r.pay] || 'Безналичными'}</span><span class="spacer"></span><span>${fmtNum(r.sum)}.00</span></div>
+      <div class="row tiny"><span>${vs ? 'Сумма ' + vatName : 'Сумма без НДС'}</span><span class="spacer"></span><span>${vs ? vs.toFixed(2) : fmtNum(r.sum) + '.00'}</span></div>
+      <div class="hr"></div>
+      <div class="tiny">Покупатель: ${esc(maskContact(r.contact))}</div>
+      <div class="tiny">Сайт ФНС: www.nalog.gov.ru · ОФД: ${KKT.ofd}</div>
+      <div class="tiny">РН ККТ ${KKT.rn} · ФН ${KKT.fn}</div>
+      <div class="tiny">ФД ${r.fd} · ФП ${r.fp} · ФФД 1.2</div>
+      ${qrSVG(rcQR(r), 'qr rcqr')}
+    </div>
+    <div class="note ${rcInOfd(r) ? 'green' : ''}" style="margin-top:12px">${rcInOfd(r) ? `Чек принят Контур.ОФД и ${r.ch === 'email' ? 'отправлен на email' : 'отправлен SMS'} ${esc(maskContact(r.contact))}. Копия ушла в ФНС.` : 'Облачная касса формирует чек и передаёт его в Контур.ОФД…'}</div></div>
+  </div></div>`;
+}
+
 /* ===== Состояние интерфейса ===== */
 const UI = {
   app: 'client', view: 'menu', goal: 'all', type: 'all', q: '', sort: 'pop',
   cart: {}, drawer: null, modal: null, lastOrder: null, payErr: '',
-  co: { mode: 'gym', when: 'asap', time: '', name: '', phone: '', card: '', comment: '', pay: 'card', num: '2200 1234 5678 9010', exp: '12/28', cvc: '123' },
+  co: { mode: 'gym', when: 'asap', time: '', name: '', phone: '', email: '', card: '', comment: '', pay: null, num: '2200 1234 5678 9010', exp: '12/28', cvc: '123' },
   sub: 'all', kSt: 'all', wTab: 'up', lockMsg: null, pickConfirm: null, lockIn: '', cafeNo: '',
   mq: '', mGoal: 'all', mType: 'all', sq: '', sCat: 'all', sStatus: 'all', pAll: false, pChoice: {}, editDish: null, mView: 'admin-menu',
 };
@@ -1526,21 +1657,25 @@ function cartDrawer() {
       <div style="height:12px"></div>
       <div class="field"><label>Имя *</label><input class="input" data-co="name" data-fk="co-name" value="${esc(UI.co.name)}" placeholder="Как к вам обращаться"></div>
       <div class="field"><label>Телефон *</label><input class="input" data-co="phone" data-fk="co-phone" value="${esc(UI.co.phone)}" placeholder="+7 900 000-00-00" inputmode="tel"></div>
+      <div class="field"><label>Email для чека</label><input class="input" data-co="email" data-fk="co-email" value="${esc(UI.co.email)}" placeholder="name@mail.ru" inputmode="email" autocomplete="email"><div class="tiny muted" style="margin-top:4px">Электронный чек пришлёт Контур.ОФД. Без email — SMS на телефон.</div></div>
       <div class="field"><label>Номер клубной карты</label><input class="input" data-co="card" data-fk="co-card" value="${esc(UI.co.card)}" placeholder="необязательно"></div>
       <div class="field"><label>Комментарий для кухни</label><input class="input" data-co="comment" data-fk="co-comment" value="${esc(UI.co.comment)}" placeholder="Например: без лука, соус отдельно"></div>
       ${UI.payErr ? `<div class="note red">${esc(UI.payErr)}</div>` : ''}</div>
     <div class="df"><div class="sum-row total" style="padding:0 0 10px"><span>К оплате</span><span>${fmtRub(cartSum())}</span></div><button class="btn primary lg" style="width:100%;justify-content:center" data-act="co-topay">Перейти к оплате</button></div>`;
   } else if (UI.drawer === 'pay') {
+    const sbpBtn = `<button class="${UI.co.pay === 'sbp' ? 'on' : ''}" data-act="co-pay" data-v="sbp">⚡ СБП<small>через приложение банка${fset().sbpDefault ? ' · быстрее всего' : ''}</small></button>`;
+    const cardBtn = `<button class="${UI.co.pay === 'card' ? 'on' : ''}" data-act="co-pay" data-v="card">💳 Картой<small>Мир, Visa, Mastercard</small></button>`;
+    const to = UI.co.email.trim() ? 'на ' + esc(UI.co.email.trim()) : 'SMS на ' + esc(UI.co.phone.trim());
     h = head('Оплата') + `<div class="db">
-      <div class="paym"><button class="${UI.co.pay === 'card' ? 'on' : ''}" data-act="co-pay" data-v="card">💳 Картой<small>Мир, Visa, Mastercard</small></button><button class="${UI.co.pay === 'sbp' ? 'on' : ''}" data-act="co-pay" data-v="sbp">⚡ СБП<small>через приложение банка</small></button></div>
+      <div class="paym">${fset().sbpDefault ? sbpBtn + cardBtn : cardBtn + sbpBtn}</div>
       <div style="height:14px"></div>
       ${UI.co.pay === 'card' ? `<div class="field"><label>Номер карты</label><input class="input" data-co="num" data-fk="co-num" value="${esc(UI.co.num)}" inputmode="numeric"></div>
         <div class="row"><div class="field" style="flex:1"><label>Срок</label><input class="input" data-co="exp" data-fk="co-exp" value="${esc(UI.co.exp)}"></div><div class="field" style="flex:1"><label>CVC</label><input class="input" data-co="cvc" data-fk="co-cvc" value="${esc(UI.co.cvc)}" inputmode="numeric"></div></div>`
         : `<div style="text-align:center">${qrSVG('https://qr.nspk.ru/DEMO' + cartSum(), 'qr')}<div class="small muted">Отсканируйте QR-код в приложении банка или нажмите кнопку ниже</div></div>`}
-      <div class="note" style="margin-top:12px">Демо-режим: деньги не списываются, данные карты никуда не отправляются.</div></div>
+      <div class="note" style="margin-top:12px">Платёж принимает ЮKassa. Чек сформирует облачная касса, Контур.ОФД пришлёт его ${to}.<br><span class="tiny muted">Демо-режим: деньги не списываются, данные карты никуда не отправляются.</span></div></div>
     <div class="df"><button class="btn primary lg" style="width:100%;justify-content:center" data-act="co-paynow">${UI.co.pay === 'card' ? 'Оплатить ' : 'Я оплатил(а) '}${fmtRub(cartSum())}</button></div>`;
   } else if (UI.drawer === 'paying') {
-    h = head('Оплата') + `<div class="db"><div class="spinner"></div><p style="text-align:center" class="muted">Проводим оплату…</p></div>`;
+    h = head('Оплата') + `<div class="db"><div class="spinner"></div><p style="text-align:center" class="muted">Ждём подтверждения оплаты от ЮKassa…</p></div>`;
   } else if (UI.drawer === 'success') {
     const o = S.orders[UI.lastOrder];
     h = head('Заказ оплачен') + (o ? `<div class="db">${orderCardBody(o, true)}</div>
@@ -1553,8 +1688,8 @@ function placeOrder() {
   const short = Object.entries(need).filter(([ing, q]) => available(ing) < q - 1e-9);
   if (short.length) { const dishes = Object.keys(UI.cart).filter(id => DISH[id].recipe.some(x => short.some(([i]) => i === x.ing))); UI.drawer = 'cart'; render(); toast('Пока вы оформляли, закончилось: ' + dishes.map(id => DISH[id].name).join(', '), 'warn', 6000); return; }
   const tm = coTimes();
-  const o = buildOrder(S.catalog, Object.entries(UI.cart), { no: newOrderNo(), name: UI.co.name.trim(), phone: UI.co.phone.trim(), card: UI.co.card.trim(), comment: UI.co.comment.trim(), mode: UI.co.mode, payMethod: UI.co.pay, readyAt: tm.t, minAt: tm.min });
-  saveOrder(o); addMyOrder(o.id);
+  const o = buildOrder(S.catalog, Object.entries(UI.cart), { no: newOrderNo(), name: UI.co.name.trim(), phone: UI.co.phone.trim(), email: UI.co.email.trim(), card: UI.co.card.trim(), comment: UI.co.comment.trim(), mode: UI.co.mode, payMethod: UI.co.pay, readyAt: tm.t, minAt: tm.min });
+  fiscalOnPaid(o); saveOrder(o); addMyOrder(o.id);
   UI.cart = {}; UI.lastOrder = o.id; UI.drawer = 'success'; render();
 }
 
@@ -1594,8 +1729,9 @@ function orderCardBody(o, fresh) {
   return `<div class="success">${fresh ? '<div class="ok">✓</div>' : ''}<div class="muted">Номер заказа — он будет на ${o.bag.need ? 'пакете' : ''}${o.bag.need && o.cup.need ? ' и ' : ''}${o.cup.need ? 'стакане' : ''}</div><div class="code">№${o.no}</div>
       <p>Будет ${gym ? 'наверху' : 'на стойке кафе'} к <b>${fmtTime(o.readyAt)}</b>${o.minAt ? ` <span class="muted small">(минимально было ${fmtTime(o.minAt)})</span>` : ''}</p></div>
     <div class="parts">${ready}${wait}${got}</div>
-    ${o.items.map(it => `<div class="ci"><div class="e">${it.e}</div><div class="n">${esc(it.n)}${it.drink ? ' <span class="tiny muted">· стакан</span>' : ''}</div><b>× ${it.q}</b></div>`).join('')}
-    <div class="sum-row total"><span>Оплачено ${o.payMethod === 'sbp' ? 'по СБП' : 'картой'}</span><span>${fmtRub(o.total)}</span></div>`;
+    ${receiptRows(o)}
+    ${o.items.map(it => `<div class="ci"><div class="e">${it.e}</div><div class="n">${esc(it.n)}${it.drink ? ` <span class="tiny muted">· ${DRINK_SUB[it.d] === 'water' ? 'бутылка' : 'стакан'}</span>` : ''}</div><b>× ${it.q}</b></div>`).join('')}
+    <div class="sum-row total"><span>${o.status === 'cancelled' ? 'Возвращено' : 'Оплачено'} ${o.payMethod === 'sbp' ? 'по СБП' : 'картой'}</span><span>${fmtRub(o.total)}</span></div>`;
 }
 function trackModal(o) {
   const steps = o.mode === 'cafe' ? [['paid', 'Принят'], ['cooking', 'Готовится'], ['ready', 'Готов'], ['placed', 'На стойке кафе'], ['done', 'Получен']]
@@ -1768,13 +1904,14 @@ function posterMain() {
 }
 
 /* ===== Приложение управляющего ===== */
-const ADMIN_TABS = [['admin-menu', 'Меню и акции'], ['stock', 'Склад'], ['purchasing', 'Закупки'], ['dashboard', 'Сводка'], ['settings', 'Настройки']];
+const ADMIN_TABS = [['admin-menu', 'Меню и акции'], ['stock', 'Склад'], ['purchasing', 'Закупки'], ['receipts', 'Платежи и чеки'], ['dashboard', 'Сводка'], ['settings', 'Настройки']];
 function adminHead() {
   const stockN = S.catalog.ingredients.filter(i => ingStatus(i)[0] !== 'ok').length;
-  return staffHead('Управляющий', 'меню, склад, закупки', ADMIN_TABS.map(([id, n]) => [id, n, id === 'stock' ? stockN : 0]), UI.view, 'nav');
+  const rcQueue = Object.values(S.orders).reduce((s, o) => s + (o.receipts || []).filter(r => !rcInOfd(r)).length, 0);
+  return staffHead('Управляющий', 'меню, склад, закупки, чеки', ADMIN_TABS.map(([id, n]) => [id, n, id === 'stock' ? stockN : id === 'receipts' ? rcQueue : 0]), UI.view, 'nav');
 }
 function adminMain() {
-  const v = { 'admin-menu': menuAdminView, stock: stockView, purchasing: purchasingView, dashboard: dashboardView, settings: settingsView }[UI.view] || menuAdminView;
+  const v = { 'admin-menu': menuAdminView, stock: stockView, purchasing: purchasingView, receipts: receiptsView, dashboard: dashboardView, settings: settingsView }[UI.view] || menuAdminView;
   const note = S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)}</div>` : '';
   return `<div class="awrap">${note}${v()}</div>`;
 }
@@ -2009,7 +2146,7 @@ function dashboardView() {
 function settingsView() {
   const s = st();
   const num = (path, val, min, max) => `<input class="input num" type="number" min="${min}" max="${max}" value="${val}" data-setp="${path}" style="width:80px">`;
-  return `<div class="ah"><h2>Настройки кухни и выдачи</h2><span class="muted">планировщик сразу пересчитывает задачи и минимальное время на сайте</span></div>
+  return `<div class="ah"><h2>Настройки кухни, выдачи и кассы</h2><span class="muted">планировщик сразу пересчитывает задачи и минимальное время на сайте</span></div>
     <div class="grid2"><div class="panel"><h3>Цеха: сколько блюд готовится одновременно</h3>
       ${STATIONS.map(x => `<div class="row" style="margin:8px 0"><span style="width:160px"><b style="color:${x.color}">${x.name}</b></span>${num('stations.' + x.id, s.stations[x.id], 1, 10)}<span class="small muted">мест</span></div>`).join('')}
       <p class="tiny muted">Блюда распределяются по цехам из карточки блюда (поле «Цех»).</p></div>
@@ -2018,12 +2155,79 @@ function settingsView() {
       <div class="row" style="margin:8px 0"><span style="width:220px">Подъём к шкафу с ячейками</span>${num('deliver.locker', s.deliver.locker, 0, 30)}</div>
       <div class="row" style="margin:8px 0"><span style="width:220px">Подъём на стойку ресепшена</span>${num('deliver.counter', s.deliver.counter, 0, 30)}</div>
       <div class="row" style="margin:8px 0"><span style="width:220px">Выдача в кафе</span>${num('deliver.cafe', s.deliver.cafe, 0, 15)}</div></div></div>
+    ${fiscalSettingsPanel()}
     <div class="panel"><h3>Шкаф</h3><p class="small">12 ячеек: A1–A4 размер S (перекусы), B1–B4 размер M (обед), C1–C4 размер L (семейные наборы и рационы). Свободная ячейка подбирается по размеру пакета.</p>${lockerGrid(false)}</div>`;
+}
+
+/* ----- Платежи и чеки ----- */
+function receiptsView() {
+  const now = Date.now(), f = fset();
+  const today = Object.values(S.orders).filter(o => sameDay(o.createdAt, now));
+  const all = Object.values(S.orders).flatMap(o => (o.receipts || []).map(r => ({ o, r }))).sort((a, b) => b.r.at - a.r.at);
+  const rToday = all.filter(x => sameDay(x.r.at, now));
+  const inc = rToday.filter(x => x.r.type === 'income' && x.r.pay !== 'offset').reduce((s, x) => s + x.r.sum, 0);
+  const ref = rToday.filter(x => x.r.type === 'refund').reduce((s, x) => s + x.r.sum, 0);
+  const queue = all.filter(x => !rcInOfd(x.r)).length;
+  const noRc = today.filter(o => !(o.receipts || []).some(r => r.type === 'income'));
+  const waitClose = Object.values(S.orders).filter(o => needsClosing(o) && o.status !== 'cancelled');
+  const delivered = waitClose.filter(o => o.status === 'placed');
+  const a = acquiringStats(today);
+  const payName = r => r.pay === 'offset' ? 'зачёт предоплаты' : r.pay === 'sbp' ? 'СБП' : 'карта';
+  return `<div class="ah"><h2>Платежи и чеки</h2><span class="muted">ЮKassa принимает оплату → ${KKT.kkt} формирует чек → ${KKT.ofd} отправляет его в ФНС и клиенту</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Оплачено сегодня</div><div class="v">${fmtRub(inc)}</div><div class="s">чеков прихода: ${rToday.filter(x => x.r.type === 'income').length}${ref ? ' · возвратов на ' + fmtRub(ref) : ''}</div></div>
+      <div class="kpi ${queue ? 'warn' : ''}"><div class="l">В очереди кассы</div><div class="v">${queue}</div><div class="s">${queue ? 'облачная касса формирует чеки' : 'все чеки приняты Контур.ОФД'}</div></div>
+      <div class="kpi ${noRc.length ? 'bad' : ''}"><div class="l">Сверка: заказ ↔ платёж ↔ чек</div><div class="v">${noRc.length ? noRc.length + ' без чека' : '✓'}</div><div class="s">${noRc.length ? 'проверьте заказы: ' + noRc.map(o => '№' + o.no).join(', ') : 'все оплаченные заказы сегодня с чеком прихода'}</div></div>
+      <div class="kpi ${delivered.length ? 'warn' : ''}"><div class="l">Ждут второго чека</div><div class="v">${waitClose.length}</div><div class="s">уйдёт по «Заказ забрал»; доставлено, но не нажато: ${delivered.length}${f.scheme === 'one' && waitClose.length ? ' · оформлены до перехода на один чек' : ''}</div></div>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Как сейчас выбиваются чеки</h3>
+        <div class="small"><b>${f.scheme === 'one' ? 'Один чек «Полный расчёт» сразу при оплате' : 'Два чека: «Предоплата 100%» при оплате и «Полный расчёт» при получении'}</b></div>
+        <div class="small muted" style="margin-top:4px">${SNO[f.sno]} · ${VAT[f.vat][0]} · предмет расчёта «${SUBJ[f.subject]}» · бутылки — с GTIN и реквизитом 1265</div>
+        ${f.scheme === 'two' || delivered.length ? `<button class="btn sm" style="margin-top:12px" data-act="rc-close-day" ${delivered.length ? '' : 'disabled'}>Закрыть день: «Полный расчёт» по ${delivered.length} доставленным</button>
+        <div class="tiny muted" style="margin-top:6px">Для заказов, которые лежат в ячейке или на стойке, но клиент не нажал «Заказ забрал».</div>` : ''}
+        <div class="tiny muted" style="margin-top:10px">Схему, НДС и комиссии меняют во вкладке «Настройки».</div></div>
+      <div class="panel"><h3>Эквайринг сегодня — оценка комиссии</h3>
+        <div class="bar-h"><span class="lb">⚡ СБП · ${a.sbpN} опл.</span><span class="tr"><i style="width:${a.share}%;background:var(--green)"></i></span><span class="vl">${fmtRub(a.sbp)}</span></div>
+        <div class="bar-h"><span class="lb">💳 Карты · ${a.cardN} опл.</span><span class="tr"><i style="width:${100 - a.share}%;background:var(--orange)"></i></span><span class="vl">${fmtRub(a.card)}</span></div>
+        <div class="sum-row" style="margin-top:8px"><span class="muted">Комиссия по ставкам ${String(f.cardFee).replace(".", ",")}% + НДС ${f.feeVat}% / ${String(f.sbpFee).replace(".", ",")}%</span><b>≈ ${fmtRub(a.fee)}</b></div>
+        <div class="sum-row"><span class="muted">Сэкономили бы, если бы все платили по СБП</span><b>≈ ${fmtRub(a.save)}</b></div>
+        <div class="tiny muted">Доля СБП ${fmtNum(a.share)}%. ${f.sbpDefault ? 'СБП стоит первым и выбран по умолчанию на сайте.' : 'Включите «СБП по умолчанию» в настройках, чтобы поднять долю.'}</div></div>
+    </div>
+    <div class="panel"><h3>Журнал чеков</h3><div class="tw" style="max-height:440px"><table class="t"><thead><tr><th>Время</th><th>Заказ</th><th>Чек</th><th>Признак</th><th class="r">Сумма</th><th>Оплата</th><th>Куда отправлен</th><th>Статус</th><th></th></tr></thead><tbody>
+      ${all.slice(0, 60).map(({ o, r }) => `<tr><td>${sameDay(r.at, now) ? '' : fmtDate(r.at) + ' '}${fmtTime(r.at)}</td><td>№${o.no}<div class="tiny muted">${esc(o.name)}</div></td><td>ФД ${r.fd}</td>
+        <td><span class="st ${r.type === 'refund' ? 'red' : r.mode === 'prepay' ? 'blue' : 'green'}">${RC_TYPE[r.type]}</span><div class="tiny muted">${RC_MODE[r.mode]}</div></td>
+        <td class="r">${r.type === 'refund' ? '−' : ''}${fmtRub(r.sum)}</td><td>${payName(r)}</td><td class="small">${r.ch === 'email' ? '✉️' : '💬'} ${esc(maskContact(r.contact))}</td>
+        <td>${rcInOfd(r) ? '<span class="st green">Контур.ОФД</span>' : '<span class="st orange">в кассе</span>'}</td><td><button class="btn sm" data-act="rc-open" data-id="${o.id}" data-r="${r.id}">Чек</button></td></tr>`).join('') || '<tr><td colspan="9" class="muted">Чеков пока нет</td></tr>'}
+      </tbody></table></div></div>
+    <p class="tiny muted">В прототипе касса и ОФД имитируются: реквизиты условные, чеки не фискальные. В боевой версии сервер отправляет данные чека в API облачной кассы, а статус и фискальный признак получает в ответ; сверка с Контур.ОФД — раз в сутки.</p>`;
+}
+
+function fiscalSettingsPanel() {
+  const f = fset();
+  const sel = (key, opts) => `<select class="input" data-fset="${key}">${Object.entries(opts).map(([k, v]) => `<option value="${k}" ${f[key] === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`;
+  const fee = (key, val) => `<input class="input num" type="number" step="0.1" min="0" max="30" value="${val}" data-fset="${key}" style="width:80px">`;
+  const warn = f.sno === 'osn' && f.scheme === 'one';
+  return `<div class="panel"><h3>Касса и чеки</h3>
+    <div class="grid2"><div>
+      <div class="field"><label>Система налогообложения (в чеке)</label>${sel('sno', SNO)}</div>
+      <div class="field"><label>Схема чеков</label>${sel('scheme', { two: 'Два чека: предоплата при оплате + полный расчёт при получении', one: 'Один чек «Полный расчёт» при оплате' })}
+        <div class="tiny muted" style="margin-top:4px">Один чек допустим при кассовом методе (УСН) и согласии покупателя в оферте — письмо ФНС № АБ-3-20/7479@. Решает бухгалтер.</div>
+        ${warn ? '<div class="note red" style="margin-top:6px">На ОСН нужен вариант с двумя чеками.</div>' : ''}</div>
+      <div class="row" style="gap:12px"><div class="field" style="flex:1"><label>Ставка НДС в чеке</label>${sel('vat', Object.fromEntries(Object.entries(VAT).map(([k, v]) => [k, v[0]])))}</div>
+        <div class="field" style="flex:1"><label>Предмет расчёта для блюд</label>${sel('subject', SUBJ)}</div></div>
+    </div><div>
+      <div class="field"><label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" data-fset="sbpDefault" ${f.sbpDefault ? 'checked' : ''}> СБП первым и по умолчанию на сайте</label></div>
+      <div class="field"><label>Комиссия эквайринга, % — для оценки в «Платежи и чеки»</label>
+        <div class="row" style="margin:6px 0"><span style="width:150px">Карты</span>${fee('cardFee', f.cardFee)}<span class="small muted">+ НДС на комиссию</span>${fee('feeVat', f.feeVat)}<span class="small muted">%</span></div>
+        <div class="row" style="margin:6px 0"><span style="width:150px">СБП</span>${fee('sbpFee', f.sbpFee)}</div></div>
+      <div class="small muted">Эквайринг: ${KKT.acq} · касса: ${KKT.kkt} · ОФД: ${KKT.ofd}. Настройки действуют для новых заказов.</div>
+    </div></div></div>`;
 }
 
 /* ===== Приложения и маршруты ===== */
 const APPS = [['client', 'Клиент', 'menu'], ['kitchen', 'Кухня', 'kitchen'], ['waiter', 'Официант', 'waiter'], ['locker', 'Шкаф', 'locker'], ['manager', 'Управляющий', 'admin-menu'], ['poster', 'QR в зале', 'poster']];
-const MANAGER_VIEWS = ['admin-menu', 'stock', 'purchasing', 'dashboard', 'settings'];
+const MANAGER_VIEWS = ['admin-menu', 'stock', 'purchasing', 'receipts', 'dashboard', 'settings'];
 function readHash() {
   const h = location.hash.slice(1);
   if (MANAGER_VIEWS.includes(h)) { UI.app = 'manager'; UI.view = h; UI.mView = h; }
@@ -2052,6 +2256,7 @@ function layerHTML() {
     if (m.kind === 'dish' && DISH[m.id]) h += dishModal(DISH[m.id]);
     else if (m.kind === 'track' && S.orders[m.id]) h += trackModal(S.orders[m.id]);
     else if (m.kind === 'my') h += myOrdersModal();
+    else if (m.kind === 'receipt' && S.orders[m.id]) { const o = S.orders[m.id], r = (o.receipts || []).find(x => x.id === m.r); if (r) h += receiptModal(o, r, m.back); }
     else if (m.kind === 'edit' && UI.editDish) h += editDishModal();
     else if (m.kind === 'op') h += opModal();
     else if (m.kind === 'receive') { const p = S.catalog.pos.find(x => x.id === m.id); if (p) h += receiveModal(p); }
@@ -2082,6 +2287,8 @@ function renderSoon(ms = 120) { clearTimeout(_rs); _rs = setTimeout(render, ms);
 
 /* ===== Действия ===== */
 const byId = id => S.orders[id];
+const rcCount = o => (o && o.receipts ? o.receipts.length : 0);
+function closingToast(id, n0) { const o = byId(id); if (o && rcCount(o) > n0) { const r = o.receipts[o.receipts.length - 1]; toast(`Второй чек «Полный расчёт» отправлен ${r.ch === 'email' ? 'на ' + maskContact(r.contact) : 'SMS'}`, 'info', 5000); } }
 const ACT = {
   app: el => go(el.dataset.v),
   nav: el => { UI.mView = el.dataset.v; UI.modal = null; go(el.dataset.v); },
@@ -2101,20 +2308,23 @@ const ACT = {
   'open-cart': () => { UI.drawer = 'cart'; UI.modal = null; render(); },
   'close-drawer': () => { if (UI.drawer === 'paying') return; UI.drawer = null; render(); },
   'close-modal': () => { UI.modal = null; UI.pickConfirm = null; UI.editDish = null; UI.confirmDel = false; UI.rcv = null; render(); },
-  'co-next': () => { UI.drawer = 'checkout'; UI.payErr = ''; render(); },
+  'co-next': () => { UI.drawer = 'checkout'; UI.payErr = ''; if (!UI.co.email) UI.co.email = LS.get('en-email') || ''; render(); },
   'co-back': () => { UI.drawer = UI.drawer === 'pay' ? 'checkout' : 'cart'; render(); },
   'co-mode': el => { UI.co.mode = el.dataset.v; render(); },
   'co-when': el => { const v = el.dataset.v; UI.co.when = ['asap', 'custom'].includes(v) ? v : +v; if (v === 'custom' && !UI.co.time) { const t = coTimes(); if (t) UI.co.time = fmtTime(t.min + 15 * MIN); } render(); },
   'co-topay': () => {
     if (!UI.co.name.trim()) { UI.payErr = 'Укажите имя.'; render(); return; }
     if (UI.co.phone.replace(/\D/g, '').length < 10) { UI.payErr = 'Укажите телефон: пришлём статус заказа.'; render(); return; }
+    if (UI.co.email.trim() && !validEmail(UI.co.email)) { UI.payErr = 'Проверьте email — на него придёт чек.'; render(); return; }
+    LS.set('en-email', UI.co.email.trim());
+    if (!UI.co.pay) UI.co.pay = fset().sbpDefault ? 'sbp' : 'card';
     UI.payErr = ''; UI.drawer = 'pay'; render();
   },
   'co-pay': el => { UI.co.pay = el.dataset.v; render(); },
   'co-paynow': () => { UI.drawer = 'paying'; render(); setTimeout(placeOrder, 1300); },
   track: el => { UI.drawer = null; UI.modal = { kind: 'track', id: el.dataset.id }; render(); },
   'my-orders': () => { UI.modal = { kind: 'my' }; render(); },
-  'cancel-order': el => { if (cancelOrder(el.dataset.id)) toast('Заказ отменён, деньги вернутся на карту', 'ok'); else toast('Заказ уже готовится — отменить нельзя', 'warn'); render(); },
+  'cancel-order': el => { if (cancelOrder(el.dataset.id)) toast('Заказ отменён: ЮKassa вернёт деньги, чек возврата придёт на email или SMS', 'ok', 5000); else toast('Заказ уже готовится — отменить нельзя', 'warn'); render(); },
   'client-scan': el => { const o = byId(el.dataset.id); if (!o) return; const r = lockerScan(o.pickTok); UI.lockMsg = r; toast(r.msg, r.ok ? 'ok' : 'warn', 5000); render(); },
 
   'k-st': el => { UI.kSt = el.dataset.v; render(); },
@@ -2134,15 +2344,17 @@ const ACT = {
   'lk-scan': el => { UI.lockMsg = lockerScan(el.dataset.v); render(); },
   'lk-scan-in': () => { UI.lockMsg = lockerScan(UI.lockIn); UI.lockIn = ''; render(); },
   'lk-close': el => { lockerClose(el.dataset.id); UI.lockMsg = null; render(); },
-  'pick-cup': el => { const o = byId(el.dataset.id); if (clientPicked(el.dataset.id, 'cup')) toast(`Напиток №${o.no} у вас — хорошего дня!`, 'ok'); render(); },
+  'pick-cup': el => { const o = byId(el.dataset.id), n0 = rcCount(o); if (clientPicked(el.dataset.id, 'cup')) { toast(`Напиток №${o.no} у вас — хорошего дня!`, 'ok'); closingToast(el.dataset.id, n0); } render(); },
   'pick-bag': el => {
-    const id = el.dataset.id, cell = (byId(id) || {}).bag?.cell, r = clientPicked(id, 'bag', el.dataset.force === '1');
+    const id = el.dataset.id, cell = (byId(id) || {}).bag?.cell, n0 = rcCount(byId(id)), r = clientPicked(id, 'bag', el.dataset.force === '1');
     if (r === 'confirm') UI.pickConfirm = id;
-    else if (r) { UI.pickConfirm = null; UI.lockMsg = null; toast(`Спасибо! Ячейка ${cell} освобождена для следующего заказа. Приятного аппетита!`, 'ok', 5000); }
+    else if (r) { UI.pickConfirm = null; UI.lockMsg = null; toast(`Спасибо! Ячейка ${cell} освобождена для следующего заказа. Приятного аппетита!`, 'ok', 5000); closingToast(id, n0); }
     render();
   },
   'pick-cancel': () => { UI.pickConfirm = null; render(); },
-  'pick-cafe': el => { const o = byId(el.dataset.id); if (clientPicked(el.dataset.id, 'cafe')) toast(`Заказ №${o.no} получен — приятного аппетита!`, 'ok'); render(); },
+  'pick-cafe': el => { const o = byId(el.dataset.id), n0 = rcCount(o); if (clientPicked(el.dataset.id, 'cafe')) { toast(`Заказ №${o.no} получен — приятного аппетита!`, 'ok'); closingToast(el.dataset.id, n0); } render(); },
+  'rc-open': el => { UI.modal = { kind: 'receipt', id: el.dataset.id, r: el.dataset.r, back: UI.app === 'client' }; render(); },
+  'rc-close-day': () => { const n = closeDeliveredReceipts(); toast(n ? `Выбито чеков «Полный расчёт»: ${n}` : 'Нет доставленных заказов без второго чека', n ? 'ok' : 'info'); render(); },
   'w-release': el => { if (staffRelease(el.dataset.id)) toast(`Ячейка ${el.dataset.id} освобождена`, 'ok'); render(); },
 
   'm-hit': el => { const d = DISH[el.dataset.id]; d.hit = !d.hit; saveCatalog(); toast(d.hit ? '«' + d.name + '» — хит дня' : 'Убрано из хитов'); render(); },
@@ -2225,6 +2437,7 @@ document.addEventListener('change', e => {
   if (ds.uiSel) { UI[ds.uiSel] = t.value; render(); return; }
   if (ds.dish) { const d = DISH[ds.id]; if (!d) return; let v = Math.max(0, +t.value || 0); if (ds.dish === 'discount') v = Math.min(90, v); d[ds.dish] = v; saveCatalog(); render(); return; }
   if (ds.set) { S.catalog.settings[ds.set] = +t.value; saveCatalog(); render(); return; }
+  if (ds.fset) { const f = fset(), num = ['cardFee', 'sbpFee', 'feeVat'].includes(ds.fset); f[ds.fset] = t.type === 'checkbox' ? t.checked : num ? Math.max(0, +String(t.value).replace(',', '.') || 0) : t.value; saveCatalog(); toast('Настройки кассы сохранены — действуют для новых заказов', 'ok'); render(); return; }
   if (ds.setp) { const [a, b] = ds.setp.split('.'); const v = Math.max(0, +t.value || 0); if (b) S.catalog.settings[a][b] = a === 'stations' ? Math.max(1, v) : v; else S.catalog.settings[a] = v; saveCatalog(); toast('Планировщик пересчитал задачи'); render(); return; }
   if (ds.pchoice != null) { UI.pChoice[ds.id] = t.value; render(); return; }
   if (ds.ed) { UI.editDish[ds.ed] = t.value; if (['type', 'price', 'station'].includes(ds.ed)) render(); return; }
