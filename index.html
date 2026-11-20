@@ -430,6 +430,9 @@ body[data-app="poster"] #head{display:none}
 .part.ok{background:#e3f5e9;border:1.5px solid #9fd8b3}
 .part.pcol{flex-direction:column;align-items:stretch}
 .part.pcol .row{align-items:flex-start}
+.btn.green{background:#fff;border-color:var(--brand);color:var(--brand-ink)}
+.gotbtn{width:100%;justify-content:center;margin-top:10px;padding:12px;font-size:15px}
+.cell .rel{margin-top:auto;padding:4px 8px;font-size:12px}
 .part .qrbox{margin:8px 0 0}
 .wpart.wcol{flex-direction:column;align-items:stretch;gap:8px}
 .wpart.wcol .row{align-items:flex-start}
@@ -935,7 +938,7 @@ function buildSeedOrders(cat) {
     if (k >= 2) { o.tasks.forEach(t => { t.start = t0; t.done = t0 + t.dur; }); o.history.cooking = t0; o.pack.done = o.pack.need ? t0 + 22 * MIN : undefined; o.history.ready = o.readyAt - 12 * MIN; o.writtenOff = true; }
     if (k >= 3) o.history.delivering = o.readyAt - 9 * MIN;
     if (k >= 4) { o.pickTok = rndTok('P-'); o.history.placed = o.readyAt - 3 * MIN; if (o.cup.need) o.cup.placedAt = o.history.placed; if (o.bag.need && mode === 'gym') { o.bag.cell = extra.cell; o.bag.depositedAt = o.history.placed; } if (mode === 'cafe') o.shelfAt = o.history.placed; }
-    if (k >= 5) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; }
+    if (k >= 5) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; if (o.cup.need) o.cup.pickedAt = o.history.done; }
     return o;
   };
   return [
@@ -1219,7 +1222,7 @@ function newOrderNo() { const used = new Set(Object.values(S.orders).filter(o =>
 function allPlaced(o) { if (o.mode === 'cafe') return !!o.shelfAt; return (!o.cup.need || o.cup.placedAt) && (!o.bag.need || o.bag.depositedAt); }
 function takeOrder(oid) { const o0 = S.orders[oid]; if (!o0 || o0.status !== 'ready') return null; let cell = null; if (o0.mode === 'gym' && o0.bag.need) { cell = allocateCell(oid); if (!cell) { toast('Нет свободных ячеек подходящего размера', 'warn'); return null; } } const o = clone(S.orders[oid]); mark(o, 'delivering'); saveOrder(o); return cell; }
 function shelfPlace(oid) { const o = clone(S.orders[oid]); o.shelfAt = Date.now(); o.pickTok = rndTok('P-'); if (o.cup.need) o.cup.placedAt = o.shelfAt; mark(o, 'placed'); saveOrder(o); }
-function cafeHandOver(oid) { const o = clone(S.orders[oid]); if (o.bag.need) o.bag.pickedAt = Date.now(); mark(o, 'done'); saveOrder(o); }
+function cafeHandOver(oid) { const o = clone(S.orders[oid]); const t = Date.now(); if (o.bag.need) o.bag.pickedAt = t; if (o.cup.need) o.cup.pickedAt = t; o.pickedBy = 'staff'; mark(o, 'done'); saveOrder(o); }
 
 /* ----- ячейки шкафа ----- */
 const SIZE_RANK = { S: 1, M: 2, L: 3 };
@@ -1246,23 +1249,53 @@ function lockerScan(tok) {
   }
   const o = tok ? Object.values(S.orders).find(x => x.pickTok === tok) : null;
   if (o) {
-    const c = S.lockers.cells.find(x => x.orderId === o.id && x.state === 'occupied');
+    const c = S.lockers.cells.find(x => x.orderId === o.id && (x.state === 'occupied' || (x.state === 'open' && x.openFor === 'pickup')));
     if (!c) return { ok: false, msg: o.bag.pickedAt ? 'Этот заказ уже получен' : 'Заказ ещё не в ячейке — дождитесь уведомления' };
-    c.state = 'open'; c.openFor = 'pickup'; lockerLog(`${c.id} открыта клиентом, №${o.no}`); saveLockers();
-    return { ok: true, msg: `Ячейка ${c.id} открыта — заберите заказ №${o.no}`, cell: c.id };
+    if (c.state === 'occupied') { c.state = 'open'; c.openFor = 'pickup'; c.openedAt = Date.now(); lockerLog(`${c.id} открыта клиентом, №${o.no}`); saveLockers(); }
+    return { ok: true, msg: `Ячейка ${c.id} открыта — заберите заказ №${o.no}, закройте дверцу и нажмите «Заказ забрал»`, cell: c.id };
   }
   return { ok: false, msg: 'Код не подходит или уже использован' };
 }
 function lockerClose(cellId) {
   const c = S.lockers.cells.find(x => x.id === cellId); if (!c || c.state !== 'open') return;
-  const o = S.orders[c.orderId] ? clone(S.orders[c.orderId]) : null;
-  if (c.openFor === 'deposit') { if (c.orderId) bagDelivered(c.orderId); return; }
-  else {
-    lockerLog(`${c.id}: заказ №${c.no} получен, ячейка свободна`);
-    Object.assign(c, { state: 'free', orderId: null, no: null, openFor: null, since: null });
-    if (o) { o.bag.pickedAt = Date.now(); mark(o, 'done'); saveOrder(o); }
-  }
+  if (c.openFor === 'deposit' && c.orderId) bagDelivered(c.orderId);
+}
+/* ячейка освобождается для следующего заказа */
+function freeCell(c, why) {
+  lockerLog(`${c.id}: ${why} — ячейка свободна`);
+  Object.assign(c, { state: 'free', orderId: null, no: null, openFor: null, since: null, openedAt: null, depTok: null, depExp: null });
   saveLockers();
+}
+function allPicked(o) {
+  if (o.mode === 'cafe') return o.status === 'done';
+  return (!o.cup.need || o.cup.pickedAt) && (!o.bag.need || o.bag.pickedAt);
+}
+/* клиент нажал «Заказ забрал». part: cup | bag | cafe. Для ячейки, которую клиент ещё не открывал своим QR, нужен force — иначе вернём 'confirm' */
+function clientPicked(oid, part, force) {
+  const o = clone(S.orders[oid]); if (!o || o.status === 'cancelled' || o.status === 'done') return false;
+  const t = Date.now();
+  if (part === 'cup') { if (!o.cup.placedAt || o.cup.pickedAt) return false; o.cup.pickedAt = t; }
+  else if (part === 'bag') {
+    if (!o.bag.depositedAt || o.bag.pickedAt) return false;
+    const c = S.lockers.cells.find(x => x.id === o.bag.cell && x.orderId === o.id);
+    if (c && c.state === 'occupied' && !force) return 'confirm';
+    if (c) freeCell(c, `клиент забрал №${o.no} и нажал «Заказ забрал»`);
+    o.bag.pickedAt = t;
+  } else if (part === 'cafe') {
+    if (!o.shelfAt) return false;
+    if (o.bag.need) o.bag.pickedAt = t; if (o.cup.need) o.cup.pickedAt = t;
+    o.pickedBy = 'client'; mark(o, 'done'); saveOrder(o); return true;
+  } else return false;
+  if (allPicked(o)) { if (!o.history.placed) mark(o, 'placed'); mark(o, 'done'); }
+  saveOrder(o); return true;
+}
+/* страховка: клиент ушёл, не нажав кнопку, — официант освобождает ячейку вручную */
+function staffRelease(cellId) {
+  const c = S.lockers.cells.find(x => x.id === cellId); if (!c || !(c.state === 'occupied' || (c.state === 'open' && c.openFor === 'pickup'))) return false;
+  const o = c.orderId && S.orders[c.orderId] ? clone(S.orders[c.orderId]) : null;
+  freeCell(c, `освобождена официантом${c.no ? ', №' + c.no : ''}`);
+  if (o && !o.bag.pickedAt) { o.bag.pickedAt = Date.now(); o.bag.releasedBy = 'staff'; if (allPicked(o)) mark(o, 'done'); saveOrder(o); }
+  return true;
 }
 function cupPlaced(oid) { const o = clone(S.orders[oid]); o.cup.placedAt = Date.now(); if (allPlaced(o)) mark(o, 'placed'); saveOrder(o); }
 /* официант положил пакет, закрыл дверцу и нажал «Заказ доставлен в ячейку»: только сейчас у клиента появляется QR-код */
@@ -1302,7 +1335,7 @@ const UI = {
   app: 'client', view: 'menu', goal: 'all', type: 'all', q: '', sort: 'pop',
   cart: {}, drawer: null, modal: null, lastOrder: null, payErr: '',
   co: { mode: 'gym', when: 'asap', time: '', name: '', phone: '', card: '', comment: '', pay: 'card', num: '2200 1234 5678 9010', exp: '12/28', cvc: '123' },
-  sub: 'all', kSt: 'all', wTab: 'up', lockMsg: null, lockIn: '', cafeNo: '',
+  sub: 'all', kSt: 'all', wTab: 'up', lockMsg: null, pickConfirm: null, lockIn: '', cafeNo: '',
   mq: '', mGoal: 'all', mType: 'all', sq: '', sCat: 'all', sStatus: 'all', pAll: false, pChoice: {}, editDish: null, mView: 'admin-menu',
 };
 const ICON = {
@@ -1420,8 +1453,14 @@ function orderPill() {
   return `<button class="orderpill" data-act="track" data-id="${o.id}">Заказ №${o.no} · к ${fmtTime(o.readyAt)} <span class="st">${clientStatus(o)}</span></button>`;
 }
 function clientStatus(o) {
-  if (o.status === 'placed') return o.mode === 'cafe' ? 'На стойке кафе' : o.bag.need && o.cup.need ? `В ячейке ${o.bag.cell} и на стойке` : o.bag.need ? 'В ячейке ' + o.bag.cell : 'На стойке ресепшена';
-  if (o.status === 'delivering') return o.bag.depositedAt ? 'В ячейке ' + o.bag.cell : o.cup.placedAt ? 'Напиток на стойке' : 'Несём наверх';
+  if (o.mode === 'gym' && (o.status === 'placed' || o.status === 'delivering')) {
+    const left = [];
+    if (o.bag.need && o.bag.depositedAt && !o.bag.pickedAt) left.push('в ячейке ' + o.bag.cell);
+    if (o.cup.need && o.cup.placedAt && !o.cup.pickedAt) left.push(o.bag.need ? 'на стойке' : 'на стойке ресепшена');
+    if (left.length) { const t = left.join(' и '); return t[0].toUpperCase() + t.slice(1); }
+    return o.status === 'delivering' ? 'Несём наверх' : 'Ждёт клиента';
+  }
+  if (o.status === 'placed') return 'На стойке кафе';
   if (o.status === 'ready') return o.mode === 'cafe' ? 'Готов' : 'Готов, несём';
   return STATUS[o.status].short;
 }
@@ -1526,25 +1565,35 @@ function orderCardBody(o, fresh) {
   const open = cell && cell.state === 'open' && cell.orderId === o.id && cell.openFor === 'pickup';
   const cancelled = o.status === 'cancelled';
   const qr = (title, sub, extra) => `<div class="qrbox">${qrSVG(o.pickTok, 'qr big')}<div class="small"><b>${title}</b><div class="muted tiny">${sub}</div>${extra || ''}</div></div>`;
-  let ready = '', wait = '';
+  const gotBtn = (act, primary) => `<button class="btn ${primary ? 'primary' : 'green'} gotbtn" data-act="${act}" data-id="${o.id}">✓ Заказ забрал</button>`;
+  let ready = '', wait = '', got = '';
   if (!cancelled && gym && o.cup.need) {
-    if (o.cup.placedAt) ready += `<div class="part ok"><div class="pi">🥤</div><div><b>Заказ доставлен на стойку ресепшена</b><div class="small">Заберите стакан с номером <b>№${o.no}</b> · ${fmtTime(o.cup.placedAt)}</div></div></div>`;
+    if (o.cup.pickedAt) got += `<div class="part"><div class="pi">✅</div><div><b>Напиток получен на стойке</b><div class="small muted">${fmtTime(o.cup.pickedAt)}</div></div></div>`;
+    else if (o.cup.placedAt) ready += `<div class="part ok pcol"><div class="row"><div class="pi">🥤</div><div><b>Заказ доставлен на стойку ресепшена</b><div class="small">Заберите стакан с номером <b>№${o.no}</b> · ${fmtTime(o.cup.placedAt)}</div></div></div>${gotBtn('pick-cup', true)}</div>`;
     else wait += `<div class="part"><div class="pi">🥤</div><div><b>Напиток — на стойку ресепшена</b><div class="small muted">Официант подпишет стакан номером №${o.no} и отметит «Заказ доставлен на стойку».</div></div></div>`;
   }
   if (!cancelled && gym && o.bag.need) {
-    if (o.bag.pickedAt) ready += `<div class="part"><div class="pi">✅</div><div><b>Заказ получен из ячейки ${o.bag.cell}</b><div class="small muted">${fmtTime(o.bag.pickedAt)} · приятного аппетита!</div></div></div>`;
-    else if (inCell && o.pickTok) ready += `<div class="part ok pcol"><div class="row"><div class="pi">📦</div><div><b>Заказ доставлен в ячейку ${o.bag.cell}</b><div class="small">Поднесите QR-код к табло шкафа — ячейка откроется · ${fmtTime(o.bag.depositedAt)}</div></div></div>
-      ${qr('Ваш QR-код для ячейки ' + o.bag.cell, o.pickTok, open ? `<div class="note green" style="margin-top:8px">Ячейка ${o.bag.cell} открыта — заберите заказ и закройте дверцу.</div><button class="btn sm" style="margin-top:8px" data-act="lk-close" data-id="${o.bag.cell}">Закрыл(а) дверцу</button>` : `<button class="btn sm lime" style="margin-top:8px" data-act="client-scan" data-id="${o.id}">Поднести к табло шкафа (демо)</button>`)}</div>`;
+    if (o.bag.pickedAt) got += `<div class="part"><div class="pi">✅</div><div><b>Заказ получен из ячейки ${o.bag.cell}</b><div class="small muted">${fmtTime(o.bag.pickedAt)} · ячейка освобождена для следующего заказа</div></div></div>`;
+    else if (inCell && o.pickTok) {
+      let act;
+      if (UI.pickConfirm === o.id && !open) act = `<div class="note amber" style="margin-top:10px">Ячейка ${o.bag.cell} ещё не открывалась вашим QR-кодом. Если пакет уже у вас, подтвердите — ячейка освободится, и открыть её этим кодом будет нельзя.</div>
+        <div class="row" style="margin-top:8px;gap:8px"><button class="btn green" data-act="pick-bag" data-id="${o.id}" data-force="1">Да, пакет у меня</button><button class="btn" data-act="pick-cancel">Сначала открою ячейку</button></div>`;
+      else if (open) act = `<div class="note green" style="margin-top:10px">Ячейка ${o.bag.cell} открыта — заберите пакет №${o.no}, закройте дверцу и нажмите «Заказ забрал».</div>${gotBtn('pick-bag', true)}`;
+      else act = gotBtn('pick-bag', false);
+      ready += `<div class="part ok pcol"><div class="row"><div class="pi">📦</div><div><b>Заказ доставлен в ячейку ${o.bag.cell}</b><div class="small">Поднесите QR-код к табло шкафа — ячейка откроется · ${fmtTime(o.bag.depositedAt)}</div></div></div>
+      ${qr('Ваш QR-код для ячейки ' + o.bag.cell, o.pickTok, open ? '' : `<button class="btn sm lime" style="margin-top:8px" data-act="client-scan" data-id="${o.id}">Поднести к табло шкафа (демо)</button>`)}${act}</div>`;
+    }
     else wait += `<div class="part"><div class="pi">📦</div><div><b>Еда — в ячейку шкафа наверху</b><div class="small muted">QR-код для ячейки появится здесь, когда официант положит заказ в ячейку и отметит «Заказ доставлен в ячейку».</div></div></div>`;
   }
   if (!cancelled && !gym) {
-    if (o.status === 'done') ready += `<div class="part"><div class="pi">✅</div><div><b>Заказ получен</b><div class="small muted">${fmtTime(o.history.done || Date.now())}</div></div></div>`;
-    else if (o.shelfAt && o.pickTok) ready += `<div class="part ok pcol"><div class="row"><div class="pi">☕</div><div><b>Заказ ждёт вас на стойке кафе</b><div class="small">Назовите номер №${o.no} или покажите QR-код · ${fmtTime(o.shelfAt)}</div></div></div>${qr('QR-код для выдачи', o.pickTok)}</div>`;
+    if (o.status === 'done') got += `<div class="part"><div class="pi">✅</div><div><b>Заказ получен</b><div class="small muted">${fmtTime(o.history.done || Date.now())}</div></div></div>`;
+    else if (o.shelfAt && o.pickTok) ready += `<div class="part ok pcol"><div class="row"><div class="pi">☕</div><div><b>Заказ ждёт вас на стойке кафе</b><div class="small">Назовите номер №${o.no} или покажите QR-код · ${fmtTime(o.shelfAt)}</div></div></div>${qr('QR-код для выдачи', o.pickTok)}${gotBtn('pick-cafe', true)}</div>`;
     else wait += `<div class="part"><div class="pi">☕</div><div><b>Заберёте на стойке выдачи кафе</b><div class="small muted">Номер и QR-код для выдачи появятся здесь, когда заказ будет на полке.</div></div></div>`;
   }
+  if (o.status === 'done') got = `<div class="note green">Заказ получен полностью — приятного аппетита!</div>` + got;
   return `<div class="success">${fresh ? '<div class="ok">✓</div>' : ''}<div class="muted">Номер заказа — он будет на ${o.bag.need ? 'пакете' : ''}${o.bag.need && o.cup.need ? ' и ' : ''}${o.cup.need ? 'стакане' : ''}</div><div class="code">№${o.no}</div>
       <p>Будет ${gym ? 'наверху' : 'на стойке кафе'} к <b>${fmtTime(o.readyAt)}</b>${o.minAt ? ` <span class="muted small">(минимально было ${fmtTime(o.minAt)})</span>` : ''}</p></div>
-    <div class="parts">${ready}${wait}</div>
+    <div class="parts">${ready}${wait}${got}</div>
     ${o.items.map(it => `<div class="ci"><div class="e">${it.e}</div><div class="n">${esc(it.n)}${it.drink ? ' <span class="tiny muted">· стакан</span>' : ''}</div><b>× ${it.q}</b></div>`).join('')}
     <div class="sum-row total"><span>Оплачено ${o.payMethod === 'sbp' ? 'по СБП' : 'картой'}</span><span>${fmtRub(o.total)}</span></div>`;
 }
@@ -1668,14 +1717,14 @@ function waiterMain() {
     h += `<div class="wsec"><div class="row"><h3>В рейсе · ${trip.length}</h3></div>${trip.map(waiterCard).join('') || '<div class="muted small">Сейчас ничего не несёте.</div>'}</div>`;
     h += `<div class="wsec"><div class="row"><h3>Готовы к выносу · ${ready.length}</h3><span class="spacer"></span>${ready.length > 1 ? `<button class="btn sm lime" data-act="w-takeall">Взять все в рейс</button>` : ''}</div>${ready.map(waiterCard).join('') || '<div class="muted small">Пока нечего нести.</div>'}</div>`;
     h += `<div class="wsec"><h3>Скоро будут готовы</h3>${soon.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${whereLabel(o)} · к ${fmtTime(o.readyAt)}</div></div><span class="st ${STATUS[o.status].color}">${STATUS[o.status].short}</span></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
-    h += `<div class="wsec"><h3>Доставлено сегодня</h3>${doneToday.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${o.bag.cell ? 'ячейка ' + o.bag.cell : 'стойка'} · ${o.status === 'done' ? 'получен' : 'ждёт клиента'}</div></div></div>`).join('') || '<div class="muted small">Пока нет</div>'}</div>`;
+    h += `<div class="wsec"><h3>Доставлено сегодня</h3>${doneToday.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${[o.bag.need ? 'ячейка ' + o.bag.cell + (o.bag.pickedAt ? ' — забран' : ' — ждёт') : '', o.cup.need ? 'стойка' + (o.cup.pickedAt ? ' — забран' : ' — ждёт') : ''].filter(Boolean).join(' · ')}</div></div></div>`).join('') || '<div class="muted small">Пока нет</div>'}</div>`;
   } else if (UI.wTab === 'cafe') {
     const ready = all.filter(o => o.mode === 'cafe' && o.status === 'ready'), shelf = all.filter(o => o.mode === 'cafe' && o.status === 'placed');
     const q = UI.cafeNo.trim();
     h += `<div class="wsec"><h3>Готовы — поставить на полку выдачи · ${ready.length}</h3>${ready.map(o => `<div class="wcard"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="st blue">к ${fmtTime(o.readyAt)}</span></div><div class="tiny muted">${o.items.map(i => i.q + '× ' + i.n).join(', ')}</div><button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-shelf" data-id="${o.id}">Поставил на полку, номер подписан</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
     h += `<div class="wsec"><h3>На полке · ${shelf.length}</h3><input class="input" style="width:100%;margin-bottom:10px" data-ui="cafeNo" data-fk="cafeNo" placeholder="Номер, который назвал клиент" inputmode="numeric" value="${esc(q)}">
       ${shelf.map(o => `<div class="wcard ${q && o.no === q ? 'hl' : ''}"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">на полке ${mm(now - (o.shelfAt || now))} мин</span></div><button class="btn ${q && o.no === q ? 'primary' : ''}" style="width:100%;justify-content:center;margin-top:8px" data-act="w-hand" data-id="${o.id}">${q && o.no === q ? 'Номер совпал — выдать' : 'Выдать'}</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
-  } else h += `<div class="wsec"><h3>Ячейки шкафа</h3>${lockerGrid(false)}</div>`;
+  } else h += `<div class="wsec"><h3>Ячейки шкафа</h3>${lockerGrid(false)}<div class="tiny muted" style="margin-top:10px">Ячейка освобождается, когда клиент нажимает «Заказ забрал». «Освободить» — на случай, если клиент забрал пакет и ушёл, не нажав кнопку.</div></div>`;
   return `<div class="wwrap">${h}</div>`;
 }
 
@@ -1685,7 +1734,7 @@ function lockerGrid(big) {
   return `<div class="cells ${big ? 'big' : ''}">${S.lockers.cells.map(c => {
     const exp = c.state === 'reserved' && c.depExp < now;
     const lbl = c.state === 'free' || exp ? 'свободна' : c.state === 'reserved' ? `бронь №${c.no}` : c.state === 'occupied' ? `№${c.no} · ${mm(now - (c.since || now))} мин` : 'ОТКРЫТА';
-    return `<div class="cell s-${exp ? 'free' : c.state}"><div class="row"><b>${c.id}</b><span class="tiny muted">${c.size}</span></div><div class="cl">${lbl}</div>${c.state === 'open' && big ? (c.openFor === 'deposit' ? '<div class="tiny muted">официант кладёт пакет №' + c.no + ' — ждём отметки «Заказ доставлен в ячейку»</div>' : `<button class="btn sm" data-act="lk-close" data-id="${c.id}">Клиент закрыл дверцу</button>`) : ''}</div>`;
+    return `<div class="cell s-${exp ? 'free' : c.state}"><div class="row"><b>${c.id}</b><span class="tiny muted">${c.size}</span></div><div class="cl">${lbl}</div>${c.state === 'open' && big ? '<div class="tiny muted">' + (c.openFor === 'deposit' ? 'официант кладёт пакет №' + c.no + ' — ждём отметки «Заказ доставлен в ячейку»' : 'клиент забирает №' + c.no + ' — ячейка освободится, когда он нажмёт «Заказ забрал»') + '</div>' : ''}${!big && (c.state === 'occupied' || (c.state === 'open' && c.openFor === 'pickup')) ? `<button class="btn sm rel" data-act="w-release" data-id="${c.id}" title="Если клиент забрал пакет, но не нажал «Заказ забрал»">Освободить</button>` : ''}</div>`;
   }).join('')}</div>`;
 }
 function lockerMain() {
@@ -2051,7 +2100,7 @@ const ACT = {
   minus: el => cartAdd(el.dataset.id, -1),
   'open-cart': () => { UI.drawer = 'cart'; UI.modal = null; render(); },
   'close-drawer': () => { if (UI.drawer === 'paying') return; UI.drawer = null; render(); },
-  'close-modal': () => { UI.modal = null; UI.editDish = null; UI.confirmDel = false; UI.rcv = null; render(); },
+  'close-modal': () => { UI.modal = null; UI.pickConfirm = null; UI.editDish = null; UI.confirmDel = false; UI.rcv = null; render(); },
   'co-next': () => { UI.drawer = 'checkout'; UI.payErr = ''; render(); },
   'co-back': () => { UI.drawer = UI.drawer === 'pay' ? 'checkout' : 'cart'; render(); },
   'co-mode': el => { UI.co.mode = el.dataset.v; render(); },
@@ -2085,6 +2134,16 @@ const ACT = {
   'lk-scan': el => { UI.lockMsg = lockerScan(el.dataset.v); render(); },
   'lk-scan-in': () => { UI.lockMsg = lockerScan(UI.lockIn); UI.lockIn = ''; render(); },
   'lk-close': el => { lockerClose(el.dataset.id); UI.lockMsg = null; render(); },
+  'pick-cup': el => { const o = byId(el.dataset.id); if (clientPicked(el.dataset.id, 'cup')) toast(`Напиток №${o.no} у вас — хорошего дня!`, 'ok'); render(); },
+  'pick-bag': el => {
+    const id = el.dataset.id, cell = (byId(id) || {}).bag?.cell, r = clientPicked(id, 'bag', el.dataset.force === '1');
+    if (r === 'confirm') UI.pickConfirm = id;
+    else if (r) { UI.pickConfirm = null; UI.lockMsg = null; toast(`Спасибо! Ячейка ${cell} освобождена для следующего заказа. Приятного аппетита!`, 'ok', 5000); }
+    render();
+  },
+  'pick-cancel': () => { UI.pickConfirm = null; render(); },
+  'pick-cafe': el => { const o = byId(el.dataset.id); if (clientPicked(el.dataset.id, 'cafe')) toast(`Заказ №${o.no} получен — приятного аппетита!`, 'ok'); render(); },
+  'w-release': el => { if (staffRelease(el.dataset.id)) toast(`Ячейка ${el.dataset.id} освобождена`, 'ok'); render(); },
 
   'm-hit': el => { const d = DISH[el.dataset.id]; d.hit = !d.hit; saveCatalog(); toast(d.hit ? '«' + d.name + '» — хит дня' : 'Убрано из хитов'); render(); },
   'm-stop': el => { const d = DISH[el.dataset.id]; d.stop = !d.stop; saveCatalog(); render(); },
