@@ -525,6 +525,12 @@ body[data-app="kitchen"] .kbtn{min-height:60px;font-size:19px;font-weight:800;bo
 body[data-app="kitchen"] .kbtn.done{background:#e8743b;border-color:#e8743b;color:#fff}
 body[data-app="kitchen"] .kbtn:disabled{opacity:.55}
 
+.show-m{display:none}
+@media (max-width:760px){ .show-m{display:inline} }
+.panel.later h3{margin:0 0 6px}
+.laterlist{display:flex;flex-wrap:wrap;gap:8px}
+.laterlist .li{background:var(--soft);border-radius:10px;padding:6px 10px;font-size:13.5px}
+
 .site-head,.admin-head{top:var(--dbh,38px)}
 </style>
 </head>
@@ -1128,6 +1134,15 @@ function saveCatalog() { reindex(); if (S.mode === 'db') { clearTimeout(_catTime
 function saveOrder(o) { S.orders[o.id] = o; _cache = {}; if (S.mode === 'db') dbSet('orders/' + o.id, o); else saveLocal(); }
 function saveLockers() { _cache = {}; if (S.mode === 'db') dbSet('shop/lockers', S.lockers); else saveLocal(); }
 
+/* недостающие настройки старой версии каталога берём из значений по умолчанию (в памяти, без записи) */
+function upgradeCatalog(c) {
+  c.settings = c.settings || {};
+  for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
+    if (c.settings[k] === undefined) c.settings[k] = clone(v);
+    else if (v && typeof v === 'object' && !Array.isArray(v) && c.settings[k] && typeof c.settings[k] === 'object') c.settings[k] = Object.assign(clone(v), c.settings[k]);
+  }
+  return c;
+}
 async function initDb() {
   const c = window.claude;
   if (!c || typeof c.use !== 'function') return;
@@ -1137,21 +1152,37 @@ async function initDb() {
   DB = db; USER = user;
   try { CAN_WRITE = user ? await Promise.resolve(user.can('data.write')) : null; } catch (e) { CAN_WRITE = null; }
   let isOwner = false; try { isOwner = user ? !!(await Promise.resolve(user.isOwner())) : false; } catch (e) { }
+  const canWrite = isOwner || CAN_WRITE !== false;
   S.dbStatus = 'connecting'; render();
   const timer = setTimeout(() => { if (S.dbStatus === 'connecting') { S.dbStatus = 'slow'; S.dbNote = 'Общая база пока недоступна — работаем с демо-данными в этом браузере.'; render(); } }, 10000);
-  let seeding = false, subscribed = false;
+  let seeding = false, migrating = false, subscribed = false;
   DB.doc('shop/catalog').onSnapshot(async snap => {
-    const data = snap.exists ? snap.data() : null;
-    if (data && data.v === CAT_V && Array.isArray(data.dishes)) {
+    const data = snap.exists ? snap.data() : null, cached = !!(snap.metadata && snap.metadata.fromCache);
+    if (data && Array.isArray(data.dishes)) {
+      /* общая база есть — работаем с ней, даже если каталог от прошлой версии демо:
+         иначе каждое устройство живёт в своём браузере и кухня не видит заказы с телефона */
       clearTimeout(timer);
-      S.catalog = clone(data); S.mode = 'db'; S.dbStatus = 'live'; S.dbNote = ''; reindex();
+      S.catalog = upgradeCatalog(clone(data)); S.mode = 'db'; S.dbStatus = 'live'; S.dbNote = ''; reindex();
       if (!subscribed) { subscribed = true; subscribeRest(); }
       render();
-    } else if (!snap.metadata.fromCache) {
+      if ((data.v || 0) < CAT_V && !cached && canWrite && !migrating) { migrating = true; migrateSharedCatalog(); }
+    } else if (!cached) {
       clearTimeout(timer); S.dbStatus = 'empty';
-      if (isOwner && !seeding) { seeding = true; await seedSharedDb(); } else render();
+      if (canWrite && !seeding) { seeding = true; await seedSharedDb(); } else render();
     }
   }, err => { clearTimeout(timer); S.dbStatus = 'error'; S.dbNote = 'Общая база недоступна (' + (err && err.code) + ') — показываем демо-данные этого браузера.'; render(); });
+}
+/* каталог в общей базе от старой версии демо → одна запись нового каталога; заказы остаются */
+async function migrateSharedCatalog() {
+  try {
+    let lease = { acquired: true };
+    try { lease = await DB.doc('shop/catalog').acquire({ holder: uid('mig'), ttlMs: 15000 }); } catch (e) { }
+    if (!lease.acquired) return;
+    const snap = await DB.doc('shop/catalog').get();
+    const cur = snap.exists ? snap.data() : null;
+    if (cur && (cur.v || 0) >= CAT_V) return;
+    await dbSet('shop/catalog', buildSeedCatalog());
+  } catch (e) { dbError(e); }
 }
 let _ordersPrimed = false;
 function subscribeRest() {
@@ -2349,17 +2380,20 @@ function kitchenMain() {
   const p = plan(), now = Date.now(), f = UI.kSt;
   const all = Object.values(p).filter(x => f === 'all' || f === 'pack' || x.t.st === f).sort((a, b) => a.start - b.start);
   const nowL = all.filter(x => !x.started && x.start <= now + MIN), work = all.filter(x => x.started), next = all.filter(x => !x.started && x.start > now + MIN && x.start <= now + 45 * MIN);
-  const later = all.filter(x => !x.started && x.start > now + 45 * MIN).length;
+  const laterL = all.filter(x => !x.started && x.start > now + 45 * MIN);
+  const shown = new Set([...nowL, ...work, ...next].map(x => x.o.id));
+  const laterOrders = [...new Map(laterL.filter(x => !shown.has(x.o.id)).map(x => [x.o.id, x])).values()];      // по заказу — самая ранняя задача
   const packs = kitchenPackList();
   const col = (t, list, hint) => `<div class="col"><h4>${t}<span class="n">${list.length}</span></h4>${list.map(taskCard).join('') || `<div class="tiny muted" style="padding:6px">${hint}</div>`}</div>`;
   const packCol = `<div class="col"><h4>Упаковка<span class="n">${packs.length}</span></h4>${packs.map(o => `<div class="tk s-packed"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">к ${fmtTime(o.readyAt)}</span></div><div class="tm">Напишите <b>№${o.no}</b> на пакете · ${o.mode === 'cafe' ? 'выдача в кафе' : 'ячейка ' + bagSize(o)}</div><ul>${o.items.filter(i => !i.drink).map(i => `<li><span class="q">${i.q}×</span><span>${i.e} ${esc(i.n)}</span></li>`).join('')}</ul><div class="acts"><button class="btn lime kbtn" data-act="t-pack" data-id="${o.id}">✓ Упакован, №${o.no} на пакете</button></div></div>`).join('') || '<div class="tiny muted" style="padding:6px">Нечего упаковывать</div>'}</div>`;
   const lateN = Object.values(p).filter(x => x.late).length;
-  return `<div class="awrap">
+  return `<div class="awrap">${S.mode !== 'db' && S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)} Заказы с других устройств здесь не появятся.</div>` : ''}
     <div class="ah"><h2>${f === 'all' ? 'Все цеха' : f === 'pack' ? 'Упаковка' : STATION[f].name}</h2><span class="muted">планировщик ставит старт так, чтобы заказ был в точке выдачи к времени клиента; план пересчитывается при каждом событии</span></div>
     <div class="panel"><div class="row"><h3 style="margin:0">Загрузка цехов на час вперёд</h3><span class="spacer"></span><div class="legend"><span><i style="background:#1d6b45"></i>запланировано</span><span><i style="background:#e8743b"></i>готовится</span><span><i style="background:#e3463a"></i>опаздываем</span></div></div>${ganttSVG(p)}
       ${lateN ? `<div class="note red" style="margin-top:8px">Опаздываем по ${lateN} ${plural(lateN, 'задаче', 'задачам', 'задачам')}: в цехе не хватает мест. Клиентам с опозданием сайт покажет новое время.</div>` : ''}</div>
     ${f === 'pack' ? `<div class="cols" style="grid-template-columns:1fr">${packCol}</div>` : `<div class="cols">${col('Сейчас', nowL, 'Нечего начинать')}${col('В работе', work, 'Плита свободна')}${col('Далее · 45 мин', next, 'Пусто')}${packCol}</div>`}
-    ${later ? `<p class="small muted">Ещё ${later} ${plural(later, 'задача', 'задачи', 'задач')} позже чем через 45 минут.</p>` : ''}
+    ${laterOrders.length ? `<div class="panel later"><h3>Позже · ${laterOrders.length} ${plural(laterOrders.length, 'заказ', 'заказа', 'заказов')}</h3><div class="tiny muted" style="margin:-4px 0 8px">Оплачены, но готовить ещё рано — заказ появится в колонке «Сейчас» к своему времени старта.</div>
+      <div class="laterlist">${laterOrders.map(x => `<span class="li"><b>№${x.o.no}</b> ${esc(x.o.items.map(i => i.n).join(', ').slice(0, 60))} · старт ${sameDay(x.start, now) ? '' : 'завтра '}<b>${fmtTime(x.start)}</b></span>`).join('')}</div></div>` : ''}
   </div>`;
 }
 
@@ -2789,7 +2823,7 @@ function demobarHTML() {
   const txt = live ? 'Общая база: все устройства видят одни данные' : S.dbStatus === 'connecting' ? 'Подключаем общую базу…' : 'Демо-данные в этом браузере · вкладки синхронизируются';
   return `<span class="tag">Прототип «Этажом ниже»</span>
     <div class="seg">${APPS.map(([id, n, h]) => `<button class="${UI.app === id ? 'on' : ''}" data-act="app" data-v="${id === 'manager' ? UI.mView || h : h}">${n}</button>`).join('')}</div>
-    <span class="spacer"></span><span class="dbstate"><i class="dot ${live ? 'live' : 'local'}"></i><span class="hide-m">${txt}</span></span>
+    <span class="spacer"></span><span class="dbstate"><i class="dot ${live ? 'live' : 'local'}"></i><span class="hide-m">${txt}</span><span class="show-m">${live ? 'общая база' : 'этот браузер'}</span></span>
     <button class="reset" data-act="reset-demo">${UI.confirmReset ? 'Точно сбросить?' : 'Сбросить демо'}</button>`;
 }
 let _prevLayer = '';
