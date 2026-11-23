@@ -454,6 +454,39 @@ body[data-app="poster"] #head{display:none}
 .paper .rcqr{width:120px;height:120px;margin:10px auto 0}
 .demo-stamp{text-align:center;font-size:10.5px;font-weight:700;letter-spacing:.3px;color:#b4442f;border:1px dashed #e0a596;border-radius:6px;padding:3px 6px;margin-bottom:10px;font-family:var(--font)}
 
+/* ===== Бонусы и вход ===== */
+.loy{display:flex;gap:10px;align-items:flex-start;background:var(--soft);border-radius:12px;padding:10px 12px;font-size:14px;margin:4px 0 12px;text-align:left;width:100%;border:1.5px solid transparent;font-family:inherit;color:inherit}
+.loy .li{font-size:20px;line-height:1.1}
+.loy.gift{background:#f3fbe6;border-color:#cfe9a8}
+.loy.staff{background:#f1edfb;border-color:#d8cdf3}
+.loy.toggle{cursor:pointer}
+.loy.toggle .ck{flex:none;width:22px;height:22px;border-radius:7px;border:2px solid var(--brand);display:grid;place-items:center;font-weight:800;color:#fff;margin-top:1px}
+.loy.toggle.on .ck{background:var(--brand)}
+.loy.toggle:not(.on){background:#fff;border-color:var(--line)}
+.verified{margin-top:6px;font-size:13px;color:var(--brand);font-weight:600}
+.otp{margin-top:8px}
+.lnk{background:none;border:0;padding:0;color:var(--blue);font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.bal{background:#f3fbe6;border:1.5px solid #cfe9a8;border-radius:14px;padding:14px 16px}
+.bal .v{font-size:30px;font-weight:800;letter-spacing:-.5px}
+.prog{height:8px;background:#fff;border-radius:999px;overflow:hidden;margin:10px 0 4px}
+.prog i{display:block;height:100%;background:var(--brand);border-radius:999px}
+.hist{border-top:1px solid var(--line);margin-top:6px}
+.hist .row{padding:7px 0;border-bottom:1px dashed var(--line);gap:8px}
+.hist b.plus{color:var(--green)}
+.lrow{justify-content:space-between;margin:6px 0;font-size:13.5px;gap:10px}
+/* оплата: выбор банка для СБП и форма карты */
+.banks{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.bank{border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:10px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;font-weight:600;font-size:13px;font-family:inherit;color:inherit;cursor:pointer}
+.bank i{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:800;background:var(--soft);color:var(--brand)}
+.bank.on{border-color:var(--brand);background:#e9f4ee}
+.bank.on i{background:var(--brand);color:#fff}
+.cardform{background:var(--soft);border-radius:14px;padding:12px 14px}
+.cardform .input{background:#fff;letter-spacing:.5px}
+.cardform .brand{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:11px;font-weight:700}
+@media (max-width:380px){.banks{grid-template-columns:repeat(2,1fr)}}
+/* тренер: ID и начисления */
+.bal.trainer{background:#f1edfb;border-color:#d8cdf3}
+
 .site-head,.admin-head{top:var(--dbh,38px)}
 </style>
 </head>
@@ -873,7 +906,9 @@ const OPEN_H = 7.5, CLOSE_H = 22.5, SCALE = 0.6, HISTORY_DAYS = 28;
 const FIT_W = [1.2, 1.05, 1.15, 1.05, 0.9, 0.8, 0.65];
 const FAM_W = [0.8, 0.8, 0.85, 0.9, 1.2, 1.5, 1.4];
 const DEFAULT_SETTINGS = { safety: 20, growth: 0, promo: true, stations: { hot: 3, cold: 2, bar: 2 }, packMin: 2, deliver: { locker: 5, counter: 4, cafe: 0 }, holdMax: 10,
-  fiscal: { scheme: 'two', sno: 'usn', vat: 'none', subject: 'goods', sbpDefault: true, cardFee: 3.5, sbpFee: 0.4, feeVat: 22 } };
+  fiscal: { scheme: 'two', sno: 'usn', vat: 'none', subject: 'goods', sbpDefault: true, cardFee: 3.5, sbpFee: 0.4, feeVat: 22 },
+  loyalty: { on: true, welcomePct: 100, welcomeCap: 1000, spendPct: 25, ttlDays: 90, staffDiscount: 20, clubFee: 5, trainerOn: true, trainerPct: 5, payouts: [],
+    staff: [{ phone: '+7 900 111-11-11', name: 'Алексей Смирнов', role: 'Тренер', code: '101' }, { phone: '+7 900 111-22-22', name: 'Ирина Котова', role: 'Тренер', code: '102' }, { phone: '+7 900 111-33-33', name: 'Ольга Ветрова', role: 'Администратор клуба' }] } };
 const STATUS = {
   paid:       { short: 'Принят', name: 'Принят, ждёт старта на кухне', color: 'blue' },
   cooking:    { short: 'Готовится', name: 'Готовится', color: 'orange' },
@@ -884,7 +919,7 @@ const STATUS = {
   cancelled:  { short: 'Отменён', name: 'Отменён, деньги возвращены', color: 'red' },
 };
 const ACTIVE = ['paid', 'cooking', 'ready', 'delivering'];
-const CAT_V = 6;
+const CAT_V = 8;
 
 /* ===== Сборка демо-данных ===== */
 function dishFromSpec(s) {
@@ -957,20 +992,41 @@ function buildSeedOrders(cat) {
     if (k >= 3) o.history.delivering = o.readyAt - 9 * MIN;
     if (k >= 4) { o.pickTok = rndTok('P-'); o.history.placed = o.readyAt - 3 * MIN; if (o.cup.need) o.cup.placedAt = o.history.placed; if (o.bag.need && mode === 'gym') { o.bag.cell = extra.cell; o.bag.depositedAt = o.history.placed; } if (mode === 'cafe') o.shelfAt = o.history.placed; }
     if (k >= 5) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; if (o.cup.need) o.cup.pickedAt = o.history.done; }
-    o.email = emails[ix++ % emails.length]; seedReceipts(o, cat.settings.fiscal, fdRef);
+    o.email = extra.email != null ? extra.email : emails[ix++ % emails.length];
+    const LY = cat.settings.loyalty;
+    if (extra.loy === 'welcome') Object.assign(o, { welcome: Math.min(o.total, LY.welcomeCap || o.total), welcomeTtl: LY.ttlDays, welcomeSpend: LY.spendPct });
+    if (extra.loy === 'staff') Object.assign(o, { staffDisc: Math.round(o.total * LY.staffDiscount / 100), staffRole: 'Тренер' });
+    if (extra.bonus) o.bonus = Math.min(extra.bonus, o.total - 1);
+    o.paid = o.total - (o.staffDisc || 0) - (o.bonus || 0);
+    if (extra.trainer) { const t = LY.staff.find(x => x.code === extra.trainer); if (t) o.trainer = { code: t.code, name: t.name, phone: t.phone, pct: LY.trainerPct, fee: Math.round(o.paid * LY.trainerPct / 100) }; }
+    seedReceipts(o, cat.settings.fiscal, fdRef);
     return o;
   };
-  return [
-    mk('Анна', '+7 916 ••• 21 40', 'gym', [['caesar', 1], ['shakeberry', 1]], 55, 'paid', { comment: 'Без гренок' }),
+  const list = [
+    mk('Анна', '+7 916 ••• 21 40', 'gym', [['caesar', 1], ['shakeberry', 1]], 55, 'paid', { comment: 'Без гренок', trainer: '101' }),
     mk('Игорь', '+7 903 ••• 77 12', 'gym', [['megabowl', 1], ['gainer', 1]], 22, 'paid'),
     mk('Ксения', '+7 985 ••• 50 03', 'gym', [['cappuccino', 1], ['greensmoothie', 1]], 12, 'paid'),
     mk('Мария', '+7 925 ••• 10 05', 'cafe', [['bolognese', 1], ['kidcutlets', 1]], 21, 'cooking'),
     mk('Дмитрий', '+7 999 ••• 45 61', 'gym', [['chickenrice', 1], ['bar', 2], ['americano', 1]], 6, 'ready'),
     mk('Елена', '+7 915 ••• 33 18', 'gym', [['salmonbatat', 1], ['mors', 1]], -4, 'placed', { cell: 'B2' }),
     mk('Ольга', '+7 926 ••• 81 93', 'cafe', [['greek', 1], ['cappuccino', 1]], -2, 'placed'),
-    mk('Сергей', '+7 901 ••• 62 70', 'gym', [['teriyaki', 1], ['shakebanana', 1]], -45, 'done', { cell: 'C1' }),
-    mk('Павел', '+7 977 ••• 04 27', 'gym', [['beefbuck', 1]], -110, 'done', { cell: 'B4' }),
+    mk('Сергей', '+7 901 ••• 62 70', 'gym', [['teriyaki', 1], ['shakebanana', 1]], -45, 'done', { cell: 'C1', trainer: '101' }),
+    mk('Павел', '+7 977 ••• 04 27', 'gym', [['beefbuck', 1]], -110, 'done', { cell: 'B4', trainer: '102' }),
   ];
+  const m1 = mk('Марина', '+7 900 222-22-22', 'gym', [['salmonbatat', 1], ['oj', 1]], -3 * 1440 - 30, 'done', { email: 'marina.fit@mail.ru', loy: 'welcome' });
+  list.push(m1, mk('Марина', '+7 900 222-22-22', 'gym', [['chickenrice', 1], ['matcha', 1]], -1440 - 60, 'done', { email: 'marina.fit@mail.ru', bonus: Math.floor(m1.welcome * m1.welcomeSpend / 100) }),
+    mk('Алексей', '+7 900 111-11-11', 'gym', [['megabowl', 1], ['shakeberry', 1]], -150, 'done', { email: '', loy: 'staff' }));
+  // прошлый месяц: заказы с ID тренеров — за них уже можно выплатить вознаграждение
+  const d0 = new Date(now), prev = (day, h) => Math.round((new Date(d0.getFullYear(), d0.getMonth() - 1, day, h, 0).getTime() - now) / MIN);
+  const past = [['Виктор', '+7 905 ••• 18 22', [['chickenrice', 1], ['shakeberry', 1]], 6, 13, '101'], ['Наталья', '+7 916 ••• 70 41', [['caesar', 1], ['mors', 1]], 9, 19, '101'],
+    ['Роман', '+7 925 ••• 33 09', [['megabowl', 1], ['gainer', 1]], 14, 12, '102'], ['Юлия', '+7 903 ••• 92 15', [['salmonbatat', 1], ['greensmoothie', 1]], 17, 20, '101'],
+    ['Артём', '+7 999 ••• 11 64', [['teriyaki', 1], ['americano', 1]], 22, 18, '102'], ['Вера', '+7 977 ••• 58 30', [['greek', 1], ['matcha', 1]], 27, 13, '101']];
+  past.forEach(([n, ph, it, day, h, tr]) => list.push(mk(n, ph, 'gym', it, prev(day, h), 'done', { cell: 'A1', trainer: tr })));
+  // за прошлый месяц Ирине уже выплатили, Алексею — ещё нет (кнопка «Выплатить» у управляющего)
+  const pm = monthKey(new Date(d0.getFullYear(), d0.getMonth() - 1, 15).getTime());
+  const ir = list.filter(o => o.trainer && o.trainer.code === '102' && monthKey(o.history.done) === pm);
+  cat.settings.loyalty.payouts = [{ mk: pm, code: '102', name: 'Ирина Котова', amount: ir.reduce((s, o) => s + o.trainer.fee, 0), n: ir.length, at: new Date(d0.getFullYear(), d0.getMonth(), 1, 11, 20).getTime() }];
+  return list;
 }
 function buildSeedLockers(orders) {
   const L = { cells: clone(LOCKER_SEED), log: [] };
@@ -985,6 +1041,8 @@ let _cache = {};
 function reindex() {
   if (!S.catalog.settings.stations) S.catalog.settings = Object.assign(clone(DEFAULT_SETTINGS), S.catalog.settings);
   if (!S.catalog.settings.fiscal) S.catalog.settings.fiscal = clone(DEFAULT_SETTINGS.fiscal);
+  if (!S.catalog.settings.loyalty) S.catalog.settings.loyalty = clone(DEFAULT_SETTINGS.loyalty);
+  S.catalog.settings.loyalty = Object.assign(clone(DEFAULT_SETTINGS.loyalty), S.catalog.settings.loyalty);
   DISH = Object.fromEntries(S.catalog.dishes.map(d => [d.id, d]));
   ING = Object.fromEntries(S.catalog.ingredients.map(i => [i.id, i]));
   SUP = Object.fromEntries(S.catalog.suppliers.map(s => [s.id, s]));
@@ -1330,7 +1388,7 @@ function bagDelivered(oid) {
 /* ===== Уведомления ===== */
 function notifyMyOrders(before) {
   if (typeof UI !== 'undefined' && UI.app !== 'client') return;
-  const mine = new Set(myOrderIds()); let openId = null;
+  const mine = new Set(typeof myOrders === 'function' ? myOrders().map(o => o.id) : myOrderIds()); let openId = null;
   Object.values(S.orders).forEach(o => {
     if (!mine.has(o.id)) return; const b = before[o.id]; if (!b) return;
     if (o.bag.depositedAt && !b.bag.depositedAt) { toast(`Заказ №${o.no} доставлен в ячейку ${o.bag.cell}. QR-код для ячейки — на странице заказа`, 'ok', 9000); openId = o.id; }
@@ -1375,8 +1433,15 @@ function fiscalSnapshot(f) { return { scheme: f.scheme, vat: f.vat, subject: f.s
 function maxFd(extra) { let m = 1200; Object.values(S.orders).forEach(o => (o.receipts || []).forEach(r => { if (r.fd > m) m = r.fd; })); (extra || []).forEach(r => { if (r.fd > m) m = r.fd; }); return m; }
 function makeReceipt(o, type, mode, pay, at, fd) {
   const fs = o.fiscal || fiscalSnapshot(DEFAULT_SETTINGS.fiscal), t = at || Date.now();
-  const items = o.items.map(it => ({ n: it.n, q: it.q, price: it.price, sum: it.price * it.q, mk: isMarked(it.d), gtin: isMarked(it.d) ? gtinOf(it.d) : null }));
-  return { id: uid('r'), type, mode, pay, at: t, sum: items.reduce((s, x) => s + x.sum, 0), items, vat: fs.vat, subject: fs.subject, sno: fs.sno,
+  /* бонусы и скидка тренера — это скидка: распределяем её по позициям, цены в чеке уже с её учётом (письмо ФНС № ЕД-3-20/6387@) */
+  const base = o.items.reduce((s, it) => s + it.price * it.q, 0), paid = o.paid != null ? o.paid : base, disc = base - paid;
+  let rest = paid;
+  const items = o.items.map((it, i) => {
+    const full = it.price * it.q, sum = i === o.items.length - 1 ? Math.round(rest * 100) / 100 : Math.round((full - disc * full / (base || 1)) * 100) / 100;
+    rest -= sum;
+    return { n: it.n, q: it.q, price: Math.round(sum / it.q * 100) / 100, sum, full, mk: isMarked(it.d), gtin: isMarked(it.d) ? gtinOf(it.d) : null };
+  });
+  return { id: uid('r'), type, mode, pay, at: t, sum: paid, disc, bonus: o.bonus || 0, staffDisc: o.staffDisc || 0, items, vat: fs.vat, subject: fs.subject, sno: fs.sno,
     contact: o.email || o.phone, ch: o.email ? 'email' : 'sms', fd: fd || maxFd(o.receipts) + 1, fp: fpOf(o.id + type + mode + t), ofdAt: t + 1500 + hashNum(o.id + t, 1500) };
 }
 function addReceipt(o, type, mode, pay) {
@@ -1387,6 +1452,7 @@ function addReceipt(o, type, mode, pay) {
 }
 const rcInOfd = r => Date.now() >= r.ofdAt;
 const rcTitle = r => `${RC_TYPE[r.type]} · ${RC_MODE[r.mode]}`;
+const m2 = v => (Math.round(v * 100) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const rcVatSum = r => { const p = VAT[r.vat] ? VAT[r.vat][1] : 0; return p ? Math.round(r.sum * p / (100 + p) * 100) / 100 : 0; };
 const rcQR = r => { const d = new Date(r.at), p = n => String(n).padStart(2, '0'); return `t=${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}&s=${r.sum.toFixed(2)}&fn=${KKT.fn}&i=${r.fd}&fp=${r.fp}&n=${r.type === 'income' ? 1 : 2}`; };
 const rcShift = r => 40 + Math.floor((startOfDay(new Date(r.at)).getTime() - startOfDay(new Date(2026, 9, 1)).getTime()) / 864e5);
@@ -1418,7 +1484,7 @@ function seedReceipts(o, fiscalSettings, fdRef) {
 /* ----- эквайринг: оценка комиссии ----- */
 function acquiringStats(orders) {
   const f = fset(), paid = orders.filter(o => o.status !== 'cancelled');
-  const card = paid.filter(o => o.payMethod !== 'sbp').reduce((s, o) => s + o.total, 0), sbp = paid.filter(o => o.payMethod === 'sbp').reduce((s, o) => s + o.total, 0);
+  const card = paid.filter(o => o.payMethod !== 'sbp').reduce((s, o) => s + paidOf(o), 0), sbp = paid.filter(o => o.payMethod === 'sbp').reduce((s, o) => s + paidOf(o), 0);
   const cardRate = f.cardFee / 100 * (1 + (f.feeVat || 0) / 100), sbpRate = f.sbpFee / 100;
   const fee = card * cardRate + sbp * sbpRate, ifAllSbp = (card + sbp) * sbpRate;
   return { card, sbp, fee, save: fee - ifAllSbp, share: card + sbp ? sbp / (card + sbp) * 100 : 0, cardN: paid.filter(o => o.payMethod !== 'sbp').length, sbpN: paid.filter(o => o.payMethod === 'sbp').length };
@@ -1443,13 +1509,14 @@ function receiptModal(o, r, back) {
       <div class="c b" style="margin:10px 0 2px">КАССОВЫЙ ЧЕК · ${RC_TYPE[r.type].toUpperCase()}</div>
       <div class="c tiny">${fmtDate(r.at)} ${fmtTime(r.at)} · смена №${rcShift(r)} · заказ №${o.no}</div>
       <div class="hr"></div>
-      ${r.items.map((it, i) => `<div class="pl"><div class="row"><span>${i + 1}. ${esc(it.n)}</span><span class="spacer"></span><b>${fmtNum(it.sum)}.00</b></div>
-        <div class="tiny muted">${it.q} × ${fmtNum(it.price)}.00 · ${RC_MODE[r.mode]} · ${it.mk ? 'Товар' : SUBJ[r.subject]} · ${vatName}</div>
+      ${r.items.map((it, i) => `<div class="pl"><div class="row"><span>${i + 1}. ${esc(it.n)}</span><span class="spacer"></span><b>${m2(it.sum)}</b></div>
+        <div class="tiny muted">${it.q} × ${m2(it.price)} · ${RC_MODE[r.mode]} · ${it.mk ? 'Товар' : SUBJ[r.subject]} · ${vatName}${r.disc ? ` · скидка ${m2(it.full - it.sum)}` : ''}</div>
         ${it.mk ? `<div class="tiny mk">GTIN ${it.gtin} · отраслевой реквизит 1265: mode=horeca</div>` : ''}</div>`).join('')}
       <div class="hr"></div>
-      <div class="row b big"><span>ИТОГ</span><span class="spacer"></span><span>${fmtNum(r.sum)}.00</span></div>
-      <div class="row"><span>${RC_PAY[r.pay] || 'Безналичными'}</span><span class="spacer"></span><span>${fmtNum(r.sum)}.00</span></div>
-      <div class="row tiny"><span>${vs ? 'Сумма ' + vatName : 'Сумма без НДС'}</span><span class="spacer"></span><span>${vs ? vs.toFixed(2) : fmtNum(r.sum) + '.00'}</span></div>
+      ${r.disc ? `<div class="row tiny"><span>Скидка${r.bonus ? ' бонусами ' + m2(r.bonus) : ''}${r.staffDisc ? ' сотруднику клуба ' + m2(r.staffDisc) : ''}</span><span class="spacer"></span><span>−${m2(r.disc)}</span></div>` : ''}
+      <div class="row b big"><span>ИТОГ</span><span class="spacer"></span><span>${m2(r.sum)}</span></div>
+      <div class="row"><span>${RC_PAY[r.pay] || 'Безналичными'}</span><span class="spacer"></span><span>${m2(r.sum)}</span></div>
+      <div class="row tiny"><span>${vs ? 'Сумма ' + vatName : 'Сумма без НДС'}</span><span class="spacer"></span><span>${vs ? m2(vs) : m2(r.sum)}</span></div>
       <div class="hr"></div>
       <div class="tiny">Покупатель: ${esc(maskContact(r.contact))}</div>
       <div class="tiny">Сайт ФНС: www.nalog.gov.ru · ОФД: ${KKT.ofd}</div>
@@ -1461,12 +1528,278 @@ function receiptModal(o, r, back) {
   </div></div>`;
 }
 
+/* ===== Клиенты, бонусы и тренеры клуба ===== */
+const LS_SES = 'en-session';
+function normPhone(p) { const d = String(p || '').replace(/\D/g, ''); return d.length < 10 ? '' : '7' + d.slice(-10); }
+function fmtPhone(k) { if (!k) return ''; const d = k.slice(-10); return `+7 ${d.slice(0, 3)} ${d.slice(3, 6)}-${d.slice(6, 8)}-${d.slice(8, 10)}`; }
+const lset = () => { const s = S.catalog.settings; if (!s.loyalty) s.loyalty = clone(DEFAULT_SETTINGS.loyalty); return s.loyalty; };
+let SESSION = LS.get(LS_SES);
+const sessionKey = () => (SESSION && SESSION.phone) || '';
+function setSession(key) { SESSION = key ? { phone: key, at: Date.now() } : null; if (key) LS.set(LS_SES, SESSION); else LS.del(LS_SES); _cache = {}; }
+const paidOf = o => (o.paid != null ? o.paid : o.total);
+const staffOf = key => (key ? lset().staff.find(s => normPhone(s.phone) === key) || null : null);
+
+/* аккаунт собирается из заказов с тем же подтверждённым телефоном — отдельная база не нужна */
+function account(key) {
+  return memo('acc' + key, () => {
+    const L = lset(), staff = staffOf(key);
+    const orders = Object.values(S.orders).filter(o => normPhone(o.phone) === key).sort((a, b) => a.createdAt - b.createdAt);
+    const live = orders.filter(o => o.status !== 'cancelled');
+    const wo = live.find(o => o.welcome > 0) || null;
+    const welcome = wo ? wo.welcome : 0, credited = !!(wo && wo.status === 'done');
+    const creditedAt = credited ? (wo.history.done || wo.createdAt) : null;
+    const expiresAt = creditedAt ? creditedAt + (wo.welcomeTtl || L.ttlDays) * 864e5 : null;
+    const spent = live.reduce((s, o) => s + (o.bonus || 0), 0), expired = !!(expiresAt && Date.now() > expiresAt);
+    const balance = credited && !expired ? Math.max(0, welcome - spent) : 0;
+    const perOrder = wo ? Math.floor(welcome * (wo.welcomeSpend || L.spendPct) / 100) : 0;
+    const hist = [];
+    if (wo) hist.push(credited ? { at: creditedAt, t: `Кэшбэк за первый заказ №${wo.no}`, v: welcome } : { at: wo.createdAt, t: `Кэшбэк за заказ №${wo.no} — начислим, когда заберёте`, v: welcome, pending: true });
+    live.filter(o => o.bonus).forEach(o => hist.push({ at: o.createdAt, t: `Оплата бонусами, заказ №${o.no}`, v: -o.bonus }));
+    if (expired && welcome - spent > 0) hist.push({ at: expiresAt, t: 'Срок бонусов истёк', v: -(welcome - spent) });
+    hist.sort((a, b) => b.at - a.at);
+    const last = orders[orders.length - 1];
+    return { key, staff, orders, live, wo, welcome, credited, creditedAt, expiresAt, expired, spent, balance, perOrder, hist,
+      name: last ? last.name : (staff ? staff.name : ''), card: (orders.filter(o => o.card).pop() || {}).card || '', email: (orders.filter(o => o.email).pop() || {}).email || '',
+      trainerCode: ((live.filter(o => o.trainer).pop() || {}).trainer || {}).code || '',
+      firstEligible: !staff && L.on && live.length === 0 };
+  });
+}
+function loyaltyCalc(key, sum, useBonus) {
+  const L = lset(), r = { sum, staffDisc: 0, bonus: 0, welcome: 0, pay: sum, acc: null, role: '' };
+  if (!key) return r;
+  const a = account(key); r.acc = a;
+  if (a.staff) { r.role = a.staff.role; r.staffDisc = Math.round(sum * L.staffDiscount / 100); }
+  else if (L.on) {
+    if (a.firstEligible) r.welcome = Math.min(Math.round(sum * L.welcomePct / 100), L.welcomeCap > 0 ? L.welcomeCap : Infinity);
+    else if (useBonus && a.balance > 0) r.bonus = Math.max(0, Math.min(a.perOrder, a.balance, sum - 1));
+  }
+  r.pay = sum - r.staffDisc - r.bonus; return r;
+}
+/* ----- ID тренера: 5 % от заказов его клиентов, выплата раз в месяц ----- */
+const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function monthKey(ts) { const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+const monthLabel = mk => { const [y, m] = mk.split('-').map(Number); return MONTHS[m - 1] + ' ' + y; };
+const payoutDay = mk => { const [y, m] = mk.split('-').map(Number); return new Date(y, m, 1).getTime(); };      // 1-е число следующего месяца
+const dayMonth = ts => { const d = new Date(ts); return d.getDate() + ' ' + MONTHS_GEN[d.getMonth()]; };
+const trainers = () => lset().staff.filter(s => s.code);
+const shortName = n => { const [f, l] = String(n || '').split(' '); return l ? `${f} ${l[0]}.` : f; };
+function trainerFind(input) {
+  const v = String(input || '').trim(), d = v.replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length <= 4) return trainers().find(s => String(s.code) === d) || null;
+  const k = normPhone(v); return k ? trainers().find(s => normPhone(s.phone) === k) || null : null;
+}
+function nextTrainerCode() { return String(Math.max(100, ...lset().staff.map(s => +s.code || 0)) + 1); }
+/* начисления по тренерам и месяцам: начисляется, когда клиент забрал заказ; отменённые — не считаются */
+function trainerStats() {
+  return memo('trainerStats', () => {
+    const m = {};
+    const row = (code, t) => m[code] || (m[code] = { code, name: t.name, phone: t.phone, months: {}, pendN: 0, pendFee: 0 });
+    Object.values(S.orders).forEach(o => {
+      if (!o.trainer || o.status === 'cancelled') return;
+      const r = row(o.trainer.code, o.trainer);
+      if (o.status !== 'done') { r.pendN++; r.pendFee += o.trainer.fee; return; }
+      const mk = monthKey(o.history.done || o.createdAt), x = r.months[mk] || (r.months[mk] = { n: 0, sum: 0, fee: 0 });
+      x.n++; x.sum += paidOf(o); x.fee += o.trainer.fee;
+    });
+    trainers().forEach(t => { const r = row(t.code, t); r.name = t.name; r.phone = t.phone; r.active = true; });
+    return m;
+  });
+}
+const paidOut = (code, mk) => lset().payouts.filter(p => p.code === code && p.mk === mk).reduce((s, p) => s + p.amount, 0);
+const payoutOf = (code, mk) => lset().payouts.filter(p => p.code === code && p.mk === mk).pop() || null;
+function trainerMonths() {
+  const set = new Set([monthKey(Date.now())]);
+  Object.values(trainerStats()).forEach(r => Object.keys(r.months).forEach(mk => set.add(mk)));
+  return [...set].sort().reverse();
+}
+function coTrainerBlock() {
+  const L = lset(); if (!L.trainerOn) return '';
+  const key = coKey(), a = key ? account(key) : null;
+  if (a && a.staff && a.staff.code) return `<div class="loy staff"><span class="li">🏷️</span><div><b>Ваш ID тренера — ${esc(a.staff.code)}</b><div class="tiny muted">Называйте его клиентам: с их заказов вы получаете ${L.trainerPct}%, выплата — раз в месяц. За собственные заказы вознаграждение не начисляется — у вас скидка ${L.staffDiscount}%.</div></div></div>`;
+  if (a && a.staff) return '';
+  const v = String(UI.co.trainer || '').trim(), t = trainerFind(v), fee = Math.round(coCalc().pay * L.trainerPct / 100);
+  const st = !v ? `<div class="tiny muted" style="margin-top:4px">ID тренера или его телефон. Тренер получит ${L.trainerPct}% от заказа — для вас цена не меняется.</div>`
+    : t ? `<div class="verified">✓ ${esc(shortName(t.name))}, тренер — получит ${fmtRub(fee)} (${L.trainerPct}% от заказа)</div>`
+      : `<div class="tiny" style="color:var(--red);margin-top:4px">Тренер с таким ID не найден — проверьте номер или оставьте поле пустым</div>`;
+  return `<div class="field"><label>ID тренера</label><input class="input" data-co="trainer" data-fk="co-trainer" value="${esc(UI.co.trainer || '')}" placeholder="например, 101" inputmode="numeric" autocomplete="off" style="width:180px">${st}</div>`;
+}
+function orderTrainerFor(pay) {
+  const L = lset(), key = coKey(), a = key ? account(key) : null;
+  if (!L.trainerOn || (a && a.staff)) return null;
+  const t = trainerFind(UI.co.trainer); if (!t) return null;
+  return { code: t.code, name: t.name, phone: t.phone, pct: L.trainerPct, fee: Math.round(pay * L.trainerPct / 100) };
+}
+/* раздел тренера в профиле: ID и начисления по месяцам */
+function trainerProfileBlock(code) {
+  const L = lset(), r = trainerStats()[code], cur = monthKey(Date.now());
+  const months = r ? Object.keys(r.months).sort().reverse() : [];
+  if (!months.includes(cur)) months.unshift(cur);
+  const rows = months.map(mk => {
+    const x = (r && r.months[mk]) || { n: 0, fee: 0 }, p = payoutOf(code, mk), due = x.fee - paidOut(code, mk);
+    const st = mk === cur ? `выплата ${dayMonth(payoutDay(mk))}` : due <= 0 && x.fee ? `выплачено ${dayMonth(p.at)}` : x.fee ? 'к выплате' : '—';
+    return `<div class="row"><span class="small" style="flex:1">${monthLabel(mk)} · ${x.n} ${plural(x.n, 'заказ', 'заказа', 'заказов')}</span><span class="tiny muted" style="margin-right:10px">${st}</span><b>${fmtRub(x.fee)}</b></div>`;
+  }).join('');
+  return `<div class="bal trainer"><div class="tiny muted">Ваш ID тренера</div><div class="v">${esc(code)}</div>
+      <div class="small">Клиенты вводят его при оформлении заказа — вы получаете ${L.trainerPct}% от суммы их заказа. Начисление — когда клиент забрал заказ, выплата — за каждый месяц, 1-го числа следующего.</div></div>
+    <div class="tiny muted" style="margin:12px 0 4px">Вознаграждение</div><div class="hist">${rows}</div>
+    ${r && r.pendFee ? `<div class="tiny muted" style="margin-top:6px">Ещё ${fmtRub(r.pendFee)} — заказы, которые клиенты пока не забрали (${r.pendN}).</div>` : ''}`;
+}
+const coKey = () => { const k = normPhone(UI.co.phone); return k && k === sessionKey() ? k : ''; };
+const coCalc = () => loyaltyCalc(coKey(), cartSum(), UI.co.useBonus !== false);
+
+/* ----- вход по коду ----- */
+function otpBlock(ctx) {
+  const key = normPhone(ctx === 'co' ? UI.co.phone : UI.loginPhone), ok = key && key === sessionKey();
+  if (ok) return `<div class="verified">✓ Номер подтверждён${ctx === 'co' ? ' · <button class="lnk" data-act="logout">другой номер</button>' : ''}</div>`;
+  if (UI.otp && UI.otp.key === key) return `<div class="otp"><div class="row" style="gap:8px;flex-wrap:wrap"><input class="input" data-ui="otpCode" data-fk="otp-code-${ctx}" value="${esc(UI.otpCode)}" placeholder="Код" inputmode="numeric" maxlength="4" style="width:110px">
+      <button class="btn primary" data-act="otp-check" data-ctx="${ctx}">Подтвердить</button><button class="btn ghost sm" data-act="otp-send" data-ctx="${ctx}">Ещё раз</button></div>
+    <div class="tiny muted" style="margin-top:6px">Демо: SMS не отправляется, код — <b>${UI.otp.code}</b>. В боевой версии код придёт звонком-сбросом, в Telegram или SMS.</div>
+    ${UI.otpErr ? `<div class="note red" style="margin-top:6px">${esc(UI.otpErr)}</div>` : ''}</div>`;
+  return `<div class="row" style="gap:8px;margin-top:6px"><button class="btn sm" data-act="otp-send" data-ctx="${ctx}">Получить код</button><span class="tiny muted">подтвердите номер — так мы узнаем вас в следующий раз</span></div>`;
+}
+function coLoyaltyBlock() {
+  const key = coKey(); if (!key) return '';
+  const L = lset(), c = coCalc(), a = c.acc;
+  if (a.staff) return `<div class="loy staff"><span class="li">🏋️</span><div><b>${esc(a.staff.role)} клуба: скидка ${L.staffDiscount}%</b><div class="tiny muted">−${fmtRub(c.staffDisc)} · номер есть в списке сотрудников, который присылает клуб</div></div></div>`;
+  if (!L.on) return '';
+  if (c.welcome) return `<div class="loy gift"><span class="li">🎁</span><div><b>Первый заказ: вернём ${L.welcomePct}% бонусами — +${fmtRub(c.welcome)}</b><div class="tiny muted">Начислим, когда заберёте заказ${L.welcomeCap ? `, не больше ${fmtRub(L.welcomeCap)}` : ''}. Потом в каждом заказе можно оплатить бонусами до ${L.spendPct}% этой суммы — ${fmtRub(Math.floor(c.welcome * L.spendPct / 100))}.</div></div></div>`;
+  if (a.wo && !a.credited) return `<div class="loy"><span class="li">⏳</span><div><b>Кэшбэк ${fmtRub(a.welcome)} за заказ №${a.wo.no} ещё не начислен</b><div class="tiny muted">Начислим, когда вы нажмёте «Заказ забрал», — тогда им можно будет оплачивать следующие заказы.</div></div></div>`;
+  if (a.balance > 0) { const on = UI.co.useBonus !== false; return `<button class="loy gift toggle ${on ? 'on' : ''}" data-act="co-bonus"><span class="ck">${on ? '✓' : ''}</span><div><b>Оплатить бонусами −${fmtRub(on ? c.bonus : Math.min(a.perOrder, a.balance, c.sum - 1))}</b><div class="tiny muted">На счёте ${fmtRub(a.balance)} · за один заказ — до ${fmtRub(a.perOrder)} · действуют до ${fmtDate(a.expiresAt)}</div></div></button>`; }
+  if (a.expired) return `<div class="loy"><span class="li">⌛</span><div><b>Срок бонусов истёк ${fmtDate(a.expiresAt)}</b></div></div>`;
+  if (a.wo) return `<div class="loy"><span class="li">✓</span><div class="small muted">Бонусы за первый заказ потрачены полностью.</div></div>`;
+  return '';
+}
+function coTotals(c) {
+  return `${c.staffDisc ? `<div class="sum-row"><span class="muted">Скидка: ${esc(c.role.toLowerCase())} клуба</span><span>−${fmtRub(c.staffDisc)}</span></div>` : ''}${c.bonus ? `<div class="sum-row"><span class="muted">Бонусами</span><span>−${fmtRub(c.bonus)}</span></div>` : ''}`;
+}
+function orderLoyaltyRows(o) {
+  let h = '';
+  if (o.staffDisc) h += `<div class="sum-row"><span class="muted">Скидка: ${esc((o.staffRole || 'сотрудник').toLowerCase())} клуба</span><span>−${fmtRub(o.staffDisc)}</span></div>`;
+  if (o.bonus) h += `<div class="sum-row"><span class="muted">Оплачено бонусами${o.status === 'cancelled' ? ' — вернулись на счёт' : ''}</span><span>−${fmtRub(o.bonus)}</span></div>`;
+  if (o.trainer) h += `<div class="sum-row"><span class="muted">ID тренера ${esc(o.trainer.code)} · ${esc(shortName(o.trainer.name))}</span><span class="small muted">${o.status === 'cancelled' ? 'не начислено' : `получит ${o.trainer.pct}%`}</span></div>`;
+  return h;
+}
+function orderWelcomeNote(o) {
+  if (!o.welcome) return '';
+  const L = lset(), per = Math.floor(o.welcome * (o.welcomeSpend || L.spendPct) / 100);
+  const t = o.status === 'done' ? `начислен — оплачивайте им до ${fmtRub(per)} в каждом следующем заказе` : o.status === 'cancelled' ? 'не начислен: заказ отменён' : 'начислим, когда заберёте заказ';
+  return `<div class="loy gift" style="margin-top:10px"><span class="li">🎁</span><div><b>Кэшбэк ${fmtRub(o.welcome)}</b><div class="tiny muted">${t}</div></div></div>`;
+}
+function headProfileBtn() {
+  const key = sessionKey();
+  if (!key) return `<button class="btn ghost" data-act="profile">Войти</button>`;
+  const a = account(key);
+  const lbl = a.staff ? `🏋️ −${lset().staffDiscount}%` : a.balance ? `🎁 ${fmtRub(a.balance)}` : a.wo && !a.credited ? `🎁 +${fmtRub(a.welcome)}` : '👤 Профиль';
+  return `<button class="btn" data-act="profile" title="Профиль и бонусы">${lbl}</button>`;
+}
+function loginModal() {
+  const demo = [['79002222222', 'клиент с бонусами'], ['79001111111', 'тренер клуба, ID 101'], ['79005550000', 'новый клиент']];
+  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(460px,100%)">
+    <div class="mh"><h3>Вход по номеру телефона</h3><button class="x" data-act="close-modal">×</button></div>
+    <div class="mb"><p class="small muted" style="margin-top:0">Пароль не нужен: пришлём код, и этот телефон запомнит вас. По номеру мы начисляем кэшбэк и узнаём тренеров клуба.</p>
+      <div class="field"><label>Телефон</label><input class="input" data-ui="loginPhone" data-fk="login-phone" value="${esc(UI.loginPhone)}" placeholder="+7 900 000-00-00" inputmode="tel"></div>
+      ${otpBlock('modal')}
+      <div class="tiny muted" style="margin-top:14px">Демо-номера: ${demo.map(([k, t]) => `<button class="lnk" data-act="login-demo" data-v="${k}">${fmtPhone(k)}</button> — ${t}`).join(' · ')}</div></div>
+  </div></div>`;
+}
+function profileModal() {
+  const key = sessionKey(), a = account(key), L = lset();
+  let body = '';
+  if (a.staff) body = `<div class="loy staff"><span class="li">🏋️</span><div><b>${esc(a.staff.role)} клуба · скидка ${L.staffDiscount}% на все заказы</b><div class="tiny muted">Номер есть в списке сотрудников, который присылает клуб. Скидка применяется сама при оформлении; если вы уйдёте из клуба, номер уберут из списка.</div></div></div>${a.staff.code && L.trainerOn ? '<div style="height:12px"></div>' + trainerProfileBlock(a.staff.code) : ''}`;
+  else {
+    body = `<div class="bal"><div class="tiny muted">Бонусы</div><div class="v">${fmtRub(a.balance)}</div>
+      <div class="small">${a.wo ? (a.credited ? (a.expired ? `Срок истёк ${fmtDate(a.expiresAt)}` : `За один заказ — до ${fmtRub(a.perOrder)} · действуют до ${fmtDate(a.expiresAt)}`) : `+${fmtRub(a.welcome)} начислим, когда заберёте заказ №${a.wo.no}`) : `Сделайте первый заказ — вернём ${L.welcomePct}% его суммы бонусами${L.welcomeCap ? ` (до ${fmtRub(L.welcomeCap)})` : ''}.`}</div>
+      ${a.wo && a.credited ? `<div class="prog"><i style="width:${Math.min(100, a.spent / a.welcome * 100)}%"></i></div><div class="tiny muted">потрачено ${fmtRub(Math.min(a.spent, a.welcome))} из ${fmtRub(a.welcome)}</div>` : ''}</div>
+      <div class="tiny muted" style="margin:10px 0 4px">Как это работает: за первый заказ возвращаем ${L.welcomePct}% бонусами, в каждом следующем заказе ими можно оплатить до ${L.spendPct}% этой суммы. Бонусы действуют ${L.ttlDays} дней.</div>
+      ${a.hist.length ? `<div class="hist">${a.hist.map(h => `<div class="row"><span class="tiny muted" style="width:86px">${fmtDate(h.at)}</span><span class="small" style="flex:1">${esc(h.t)}</span><b class="${h.v > 0 ? 'plus' : ''} ${h.pending ? 'muted' : ''}">${h.v > 0 ? '+' : '−'}${fmtRub(Math.abs(h.v))}</b></div>`).join('')}</div>` : ''}`;
+  }
+  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(480px,100%)">
+    <div class="mh"><h3>${esc(a.name || 'Профиль')}</h3><button class="x" data-act="close-modal">×</button></div>
+    <div class="mb"><div class="small muted" style="margin-bottom:12px">${fmtPhone(key)} · подтверждён${a.card ? ' · клубная карта ' + esc(a.card) : ''} · заказов: ${a.live.length}</div>${body}</div>
+    <div class="mf"><button class="btn ghost" data-act="logout">Выйти</button><span class="spacer"></span><button class="btn" data-act="my-orders">Мои заказы</button></div>
+  </div></div>`;
+}
+
+/* ----- управляющий: клиенты и бонусы ----- */
+function allAccounts() {
+  const keys = new Set(Object.values(S.orders).map(o => normPhone(o.phone)).filter(Boolean));
+  return [...keys].map(account).sort((a, b) => (b.orders[b.orders.length - 1] || {}).createdAt - (a.orders[a.orders.length - 1] || {}).createdAt);
+}
+function trainerPayoutsPanel() {
+  const L = lset(), months = trainerMonths(), cur = monthKey(Date.now());
+  const mk = months.includes(UI.tpMonth) ? UI.tpMonth : (months.find(m => m < cur && Object.values(trainerStats()).some(r => r.months[m] && r.months[m].fee - paidOut(r.code, m) > 0)) || cur);
+  const closed = Date.now() >= payoutDay(mk);
+  const rows = Object.values(trainerStats()).map(r => ({ r, x: r.months[mk] || { n: 0, sum: 0, fee: 0 } })).filter(({ r, x }) => r.active || x.n).sort((a, b) => b.x.fee - a.x.fee);
+  const total = rows.reduce((s, { x }) => s + x.fee, 0), due = rows.reduce((s, { r, x }) => s + Math.max(0, x.fee - paidOut(r.code, mk)), 0);
+  const st = (r, x) => { const d = x.fee - paidOut(r.code, mk), p = payoutOf(r.code, mk);
+    if (!x.fee) return '<span class="muted small">—</span>';
+    if (!closed) return `<span class="st blue">копится</span>`;
+    if (d <= 0) return `<span class="st green">выплачено ${dayMonth(p.at)}</span>`;
+    return `<button class="btn primary sm" data-act="tp-pay" data-code="${esc(r.code)}" data-mk="${mk}">Выплатить ${fmtRub(d)}</button>`; };
+  return `<div class="panel"><div class="row" style="gap:10px;flex-wrap:wrap"><h3 style="margin:0">Вознаграждение тренерам по ID</h3><span class="spacer"></span>
+      <select class="input" data-ui-sel="tpMonth" style="width:auto">${months.map(m => `<option value="${m}" ${m === mk ? 'selected' : ''}>${monthLabel(m)}${m === cur ? ' — текущий' : ''}</option>`).join('')}</select></div>
+    <div class="small muted" style="margin:6px 0 10px">${L.trainerPct}% от оплаченной суммы заказа начисляется, когда клиент забрал заказ. ${closed ? `Месяц закрыт — выплатите начисленное полностью.` : `Месяц ещё идёт: полная выплата за ${MONTHS[+mk.slice(5) - 1]} — ${dayMonth(payoutDay(mk))}.`}</div>
+    <div class="tw"><table class="t"><thead><tr><th>ID</th><th>Тренер</th><th>Телефон</th><th class="r">Заказов клиентов</th><th class="r">Сумма заказов</th><th class="r">Начислено</th><th class="r">Ждут получения</th><th>Выплата</th></tr></thead><tbody>
+      ${rows.map(({ r, x }) => `<tr><td><b>${esc(r.code)}</b></td><td>${esc(r.name)}${r.active ? '' : ' <span class="tiny muted">(не в списке)</span>'}</td><td class="small" style="white-space:nowrap">${esc(fmtPhone(normPhone(r.phone)))}</td><td class="r">${x.n}</td><td class="r">${fmtRub(x.sum)}</td><td class="r"><b>${fmtRub(x.fee)}</b></td><td class="r small muted">${mk === cur && r.pendFee ? fmtRub(r.pendFee) : '—'}</td><td>${st(r, x)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Тренеров с ID пока нет</td></tr>'}
+    </tbody></table></div>
+    <div class="row" style="margin-top:10px;gap:10px;flex-wrap:wrap"><span class="small">Начислено за ${monthLabel(mk)}: <b>${fmtRub(total)}</b>${closed ? ` · к выплате: <b>${fmtRub(due)}</b>` : ''}</span><span class="spacer"></span>
+      ${closed && due > 0 ? `<button class="btn primary sm" data-act="tp-pay-all" data-mk="${mk}">Выплатить всем ${fmtRub(due)}</button>` : ''}</div>
+    <div class="tiny muted" style="margin-top:8px">Выплату оформляйте по договору с тренером (например, агентский договор; тренер-самозанятый выдаёт чек «Мой налог») — схему согласуйте с бухгалтером. В демо кнопка только отмечает выплату.</div></div>`;
+}
+function loyaltyView() {
+  const L = lset(), now = Date.now(), accs = allAccounts();
+  const clients = accs.filter(a => !a.staff), staffAccs = accs.filter(a => a.staff);
+  const liability = clients.reduce((s, a) => s + a.balance, 0), pending = clients.reduce((s, a) => s + (a.wo && !a.credited ? a.welcome : 0), 0);
+  const today = Object.values(S.orders).filter(o => sameDay(o.createdAt, now) && o.status !== 'cancelled');
+  const newToday = today.filter(o => o.welcome > 0).length, bonusToday = today.reduce((s, o) => s + (o.bonus || 0), 0), staffToday = today.reduce((s, o) => s + (o.staffDisc || 0), 0);
+  const gym = today.filter(o => o.mode === 'gym'), gymRev = gym.reduce((s, o) => s + paidOf(o), 0);
+  const num = (k, v, w) => `<input class="input num" type="number" min="0" value="${v}" data-lset="${k}" style="width:${w || 80}px">`;
+  const status = a => a.staff ? `<span class="st violet">${esc(a.staff.role)}</span>` : a.wo && !a.credited ? '<span class="st orange">ждёт начисления</span>' : a.balance ? '<span class="st green">бонусы</span>' : a.wo ? '<span class="st grey">потрачены</span>' : '<span class="st blue">гость</span>';
+  return `<div class="ah"><h2>Клиенты и бонусы</h2><span class="muted">клиента узнаём по подтверждённому номеру телефона, тренеров — по списку от клуба</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Клиентов с подтверждённым номером</div><div class="v">${clients.length}</div><div class="s">новых сегодня: ${newToday}</div></div>
+      <div class="kpi ${liability + pending ? 'warn' : ''}"><div class="l">Бонусы на счетах</div><div class="v">${fmtRub(liability)}</div><div class="s">ещё ${fmtRub(pending)} ждут начисления — это будущие скидки</div></div>
+      <div class="kpi"><div class="l">Оплачено бонусами сегодня</div><div class="v">${fmtRub(bonusToday)}</div><div class="s">скидки сотрудникам клуба: ${fmtRub(staffToday)}</div></div>
+      <div class="kpi"><div class="l">Клубу за сегодня</div><div class="v">${fmtRub(gymRev * L.clubFee / 100)}</div><div class="s">${L.clubFee}% от ${fmtRub(gymRev)} — заказы с доставкой наверх (${gym.length})</div></div>
+      ${(() => { const cur = monthKey(now), st = Object.values(trainerStats()); const fee = st.reduce((x, r) => x + ((r.months[cur] || {}).fee || 0), 0), n = st.reduce((x, r) => x + ((r.months[cur] || {}).n || 0), 0);
+        const due = st.reduce((x, r) => x + Object.entries(r.months).filter(([mk]) => mk < cur).reduce((y, [mk, m]) => y + Math.max(0, m.fee - paidOut(r.code, mk)), 0), 0);
+        return `<div class="kpi ${due ? 'warn' : ''}"><div class="l">Тренерам за ${MONTHS[new Date(now).getMonth()]}</div><div class="v">${fmtRub(fee)}</div><div class="s">${L.trainerPct}% по ID тренера · ${n} ${plural(n, 'заказ', 'заказа', 'заказов')}${due ? ` · к выплате за прошлые месяцы: ${fmtRub(due)}` : ''}</div></div>`; })()}
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Правила программы</h3>
+        <div class="field"><label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" data-lset="on" ${L.on ? 'checked' : ''}> Кэшбэк за первый заказ включён</label></div>
+        <div class="row lrow"><span>Кэшбэк за первый заказ, %</span>${num('welcomePct', L.welcomePct)}</div>
+        <div class="row lrow"><span>Не больше, ₽ (0 — без лимита)</span>${num('welcomeCap', L.welcomeCap, 100)}</div>
+        <div class="row lrow"><span>Можно потратить за один заказ, % от кэшбэка</span>${num('spendPct', L.spendPct)}</div>
+        <div class="row lrow"><span>Срок действия бонусов, дней</span>${num('ttlDays', L.ttlDays)}</div>
+        <div class="row lrow"><span>Скидка тренерам и сотрудникам клуба, %</span>${num('staffDiscount', L.staffDiscount)}</div>
+        <div class="row lrow"><span>Вознаграждение клубу, % от заказов наверх</span>${num('clubFee', L.clubFee)}</div>
+        <div class="field" style="margin-top:6px"><label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" data-lset="trainerOn" ${L.trainerOn ? 'checked' : ''}> Поле «ID тренера» при заказе</label></div>
+        <div class="row lrow"><span>Тренеру по его ID, % от оплаченной суммы заказа</span>${num('trainerPct', L.trainerPct)}</div>
+        <div class="tiny muted">Кэшбэк начисляется, когда клиент нажал «Заказ забрал», — отменённый заказ его не даёт. Новые правила действуют для новых заказов. В чеке бонусы — это скидка: цены позиций печатаются уже с её учётом.</div></div>
+      <div class="panel"><h3>Тренеры и сотрудники клуба · ${L.staff.length}</h3>
+        <div class="tw"><table class="t"><thead><tr><th>ID</th><th>Имя</th><th>Телефон</th><th>Роль</th><th class="r">Свои заказы</th><th class="r">Скидки</th><th></th></tr></thead><tbody>
+        ${L.staff.map((s, i) => { const a = account(normPhone(s.phone)); return `<tr><td>${s.code ? `<b>${esc(s.code)}</b>` : '—'}</td><td>${esc(s.name)}</td><td class="small" style="white-space:nowrap">${esc(fmtPhone(normPhone(s.phone)) || s.phone)}</td><td>${esc(s.role)}</td><td class="r">${a.live.length}</td><td class="r">${fmtRub(a.live.reduce((x, o) => x + (o.staffDisc || 0), 0))}</td><td><button class="btn sm ghost" data-act="st-del" data-i="${i}">Убрать</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Список пуст</td></tr>'}
+        </tbody></table></div>
+        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><input class="input" data-ui="stName" data-fk="st-name" value="${esc(UI.stName)}" placeholder="Имя" style="flex:1;min-width:120px"><input class="input" data-ui="stPhone" data-fk="st-phone" value="${esc(UI.stPhone)}" placeholder="+7 900 000-00-00" style="width:160px" inputmode="tel">
+          <select class="input" data-ui-sel="stRole" style="width:auto">${['Тренер', 'Администратор клуба', 'Сотрудник клуба'].map(r => `<option ${UI.stRole === r ? 'selected' : ''}>${r}</option>`).join('')}</select><button class="btn primary sm" data-act="st-add">Добавить</button></div>
+        <div class="tiny muted" style="margin-top:8px">Тренера узнаём по номеру телефона из этого списка: вошёл по коду — скидка ${L.staffDiscount}% включается сама. Тренеру ID присваивается автоматически — его клиенты вводят ID при заказе. Список присылает клуб; убранный номер сразу теряет скидку, а ID перестаёт приниматься.</div></div>
+    </div>
+    ${trainerPayoutsPanel()}
+    <div class="panel"><h3>Клиенты</h3><div class="tw" style="max-height:420px"><table class="t"><thead><tr><th>Телефон</th><th>Имя</th><th>Статус</th><th class="r">Заказов</th><th class="r">Кэшбэк</th><th class="r">Потрачено</th><th class="r">На счёте</th><th>Действуют до</th><th>Последний заказ</th></tr></thead><tbody>
+      ${accs.map(a => { const last = a.orders[a.orders.length - 1]; return `<tr><td class="small" style="white-space:nowrap">${fmtPhone(a.key)}</td><td>${esc(a.name)}</td><td>${status(a)}</td><td class="r">${a.live.length}</td><td class="r">${a.welcome ? fmtRub(a.welcome) : '—'}</td><td class="r">${a.spent ? fmtRub(a.spent) : '—'}</td><td class="r"><b>${a.balance ? fmtRub(a.balance) : '—'}</b></td><td class="small">${a.expiresAt ? fmtDate(a.expiresAt) : '—'}</td><td class="small">${last ? fmtDate(last.createdAt) + ', №' + last.no : '—'}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">Пока никто не подтвердил номер</td></tr>'}
+    </tbody></table></div>
+    <p class="tiny muted">Заказы демо-гостей без полного номера телефона в список не попадают. В боевой версии вход по коду обязателен при первом заказе, дальше телефон помнит клиента.</p></div>`;
+}
+
 /* ===== Состояние интерфейса ===== */
 const UI = {
   app: 'client', view: 'menu', goal: 'all', type: 'all', q: '', sort: 'pop',
   cart: {}, drawer: null, modal: null, lastOrder: null, payErr: '',
-  co: { mode: 'gym', when: 'asap', time: '', name: '', phone: '', email: '', card: '', comment: '', pay: null, num: '2200 1234 5678 9010', exp: '12/28', cvc: '123' },
-  sub: 'all', kSt: 'all', wTab: 'up', lockMsg: null, pickConfirm: null, lockIn: '', cafeNo: '',
+  co: { mode: 'gym', when: 'asap', time: '', name: '', phone: '', email: '', card: '', comment: '', trainer: '', pay: null, bank: null, num: '2200 1234 5678 9019', exp: '12/28', cvc: '123' },
+  sub: 'all', kSt: 'all', wTab: 'up', lockMsg: null, pickConfirm: null, loginPhone: '', otp: null, otpCode: '', otpErr: '', stName: '', stPhone: '', stRole: 'Тренер', lockIn: '', cafeNo: '',
   mq: '', mGoal: 'all', mType: 'all', sq: '', sCat: 'all', sStatus: 'all', pAll: false, pChoice: {}, editDish: null, mView: 'admin-menu',
 };
 const ICON = {
@@ -1486,7 +1819,8 @@ function cartAdd(id, n = 1) {
   if (n > 0 && !canAddMore(d)) { toast('Больше нет в наличии: ' + d.name, 'warn'); return; }
   const q = (UI.cart[id] || 0) + n; if (q <= 0) delete UI.cart[id]; else UI.cart[id] = q; render();
 }
-function myOrders() { const ids = new Set(myOrderIds()); return Object.values(S.orders).filter(o => ids.has(o.id)).sort((a, b) => b.createdAt - a.createdAt); }
+/* мои заказы: с этого устройства и все заказы подтверждённого номера — с любого телефона */
+function myOrders() { const ids = new Set(myOrderIds()), k = sessionKey(); return Object.values(S.orders).filter(o => ids.has(o.id) || (k && normPhone(o.phone) === k)).sort((a, b) => b.createdAt - a.createdAt); }
 const myActive = () => myOrders().filter(o => o.status !== 'done' && o.status !== 'cancelled');
 
 function filteredDishes() {
@@ -1526,6 +1860,7 @@ function clientHead() {
   return `<header class="site-head"><div class="in">
     <a class="logo" href="#menu" data-act="home"><span class="mark">${ICON.logo}</span><div><div class="t1">Этажом ниже</div><div class="t2">кухня для тех, кто тренируется этажом выше</div></div></a>
     <div class="spacer"></div>
+    ${headProfileBtn()}
     <button class="btn ${act ? '' : 'ghost hide-m'}" data-act="my-orders">${act ? 'Заказы' : 'Мои заказы'}${act ? ` <span class="cnt">${act}</span>` : ''}</button>
     <button class="btn primary" data-act="open-cart">${ICON.cart}<span class="${cnt ? '' : 'cart-lbl'}">${cnt ? fmtRub(cartSum()) : 'Корзина'}</span>${cnt ? `<span class="cnt">${cnt}</span>` : ''}</button>
   </div></header>`;
@@ -1656,26 +1991,44 @@ function cartDrawer() {
       <div class="note green">Заказ будет ${UI.co.mode === 'cafe' ? 'на стойке кафе' : 'наверху'} к <b>${fmtTime(tm.t)}</b>. Кухня начнёт готовить около ${fmtTime(tm.start)} — вы в это время тренируетесь.${tm.bumped ? ` Раньше ${fmtTime(tm.min)} не успеем — время сдвинуто.` : ''}</div>
       <div style="height:12px"></div>
       <div class="field"><label>Имя *</label><input class="input" data-co="name" data-fk="co-name" value="${esc(UI.co.name)}" placeholder="Как к вам обращаться"></div>
-      <div class="field"><label>Телефон *</label><input class="input" data-co="phone" data-fk="co-phone" value="${esc(UI.co.phone)}" placeholder="+7 900 000-00-00" inputmode="tel"></div>
+      <div class="field"><label>Телефон *</label><input class="input" data-co="phone" data-fk="co-phone" value="${esc(UI.co.phone)}" placeholder="+7 900 000-00-00" inputmode="tel">${otpBlock('co')}</div>
+      ${coLoyaltyBlock()}
+      ${coTrainerBlock()}
       <div class="field"><label>Email для чека</label><input class="input" data-co="email" data-fk="co-email" value="${esc(UI.co.email)}" placeholder="name@mail.ru" inputmode="email" autocomplete="email"><div class="tiny muted" style="margin-top:4px">Электронный чек пришлёт Контур.ОФД. Без email — SMS на телефон.</div></div>
       <div class="field"><label>Номер клубной карты</label><input class="input" data-co="card" data-fk="co-card" value="${esc(UI.co.card)}" placeholder="необязательно"></div>
       <div class="field"><label>Комментарий для кухни</label><input class="input" data-co="comment" data-fk="co-comment" value="${esc(UI.co.comment)}" placeholder="Например: без лука, соус отдельно"></div>
       ${UI.payErr ? `<div class="note red">${esc(UI.payErr)}</div>` : ''}</div>
-    <div class="df"><div class="sum-row total" style="padding:0 0 10px"><span>К оплате</span><span>${fmtRub(cartSum())}</span></div><button class="btn primary lg" style="width:100%;justify-content:center" data-act="co-topay">Перейти к оплате</button></div>`;
+    <div class="df">${coTotals(coCalc())}<div class="sum-row total" style="padding:0 0 10px"><span>К оплате</span><span>${fmtRub(coCalc().pay)}</span></div><button class="btn primary lg" style="width:100%;justify-content:center" data-act="co-topay">Перейти к оплате</button></div>`;
   } else if (UI.drawer === 'pay') {
-    const sbpBtn = `<button class="${UI.co.pay === 'sbp' ? 'on' : ''}" data-act="co-pay" data-v="sbp">⚡ СБП<small>через приложение банка${fset().sbpDefault ? ' · быстрее всего' : ''}</small></button>`;
+    const sbpBtn = `<button class="${UI.co.pay === 'sbp' ? 'on' : ''}" data-act="co-pay" data-v="sbp">⚡ СБП<small>в приложении вашего банка${fset().sbpDefault ? ' · быстрее всего' : ''}</small></button>`;
     const cardBtn = `<button class="${UI.co.pay === 'card' ? 'on' : ''}" data-act="co-pay" data-v="card">💳 Картой<small>Мир, Visa, Mastercard</small></button>`;
     const to = UI.co.email.trim() ? 'на ' + esc(UI.co.email.trim()) : 'SMS на ' + esc(UI.co.phone.trim());
+    const pay = coCalc().pay, bank = bankById(UI.co.bank);
+    let body, btn;
+    if (UI.co.pay === 'card') {
+      const brand = cardBrand(UI.co.num);
+      body = `<div class="cardform">
+          <div class="field"><label>Номер карты${brand ? ` <span class="brand">${brand}</span>` : ''}</label><input class="input" data-co="num" data-fk="co-num" value="${esc(UI.co.num)}" placeholder="0000 0000 0000 0000" inputmode="numeric" autocomplete="cc-number"></div>
+          <div class="row" style="gap:12px"><div class="field" style="flex:1"><label>Срок действия</label><input class="input" data-co="exp" data-fk="co-exp" value="${esc(UI.co.exp)}" placeholder="ММ/ГГ" inputmode="numeric" autocomplete="cc-exp"></div>
+            <div class="field" style="flex:1"><label>CVC / CVV</label><input class="input" data-co="cvc" data-fk="co-cvc" value="${esc(UI.co.cvc)}" placeholder="3 цифры" inputmode="numeric" autocomplete="cc-csc" type="password"></div></div>
+          <div class="tiny muted">🔒 Данные карты принимает ЮKassa по защищённому соединению — кафе их не видит и не хранит. Банк может попросить код из SMS.</div></div>`;
+      btn = `Оплатить ${fmtRub(pay)}`;
+    } else {
+      const other = BANKS_MORE.find(b => b[0] === UI.co.bank);
+      body = `<div class="tiny muted" style="margin-bottom:8px">Выберите свой банк — откроется его приложение, где нужно только подтвердить платёж. Сканировать QR-код не нужно.</div>
+        <div class="banks">${BANKS.map(([id, n]) => `<button class="bank ${UI.co.bank === id ? 'on' : ''}" data-act="co-bank" data-v="${id}"><i>${esc(n[0])}</i><span>${esc(n)}</span></button>`).join('')}</div>
+        <select class="input" data-ui-sel="sbpOther" style="margin-top:8px"><option value="">${other ? esc(other[1]) : 'Другой банк…'}</option>${BANKS_MORE.map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join('')}</select>`;
+      btn = bank ? `Оплатить ${fmtRub(pay)} в «${esc(bank)}»` : 'Выберите банк';
+    }
     h = head('Оплата') + `<div class="db">
       <div class="paym">${fset().sbpDefault ? sbpBtn + cardBtn : cardBtn + sbpBtn}</div>
-      <div style="height:14px"></div>
-      ${UI.co.pay === 'card' ? `<div class="field"><label>Номер карты</label><input class="input" data-co="num" data-fk="co-num" value="${esc(UI.co.num)}" inputmode="numeric"></div>
-        <div class="row"><div class="field" style="flex:1"><label>Срок</label><input class="input" data-co="exp" data-fk="co-exp" value="${esc(UI.co.exp)}"></div><div class="field" style="flex:1"><label>CVC</label><input class="input" data-co="cvc" data-fk="co-cvc" value="${esc(UI.co.cvc)}" inputmode="numeric"></div></div>`
-        : `<div style="text-align:center">${qrSVG('https://qr.nspk.ru/DEMO' + cartSum(), 'qr')}<div class="small muted">Отсканируйте QR-код в приложении банка или нажмите кнопку ниже</div></div>`}
+      <div style="height:14px"></div>${body}
+      ${UI.payErr ? `<div class="note red" style="margin-top:10px">${esc(UI.payErr)}</div>` : ''}
       <div class="note" style="margin-top:12px">Платёж принимает ЮKassa. Чек сформирует облачная касса, Контур.ОФД пришлёт его ${to}.<br><span class="tiny muted">Демо-режим: деньги не списываются, данные карты никуда не отправляются.</span></div></div>
-    <div class="df"><button class="btn primary lg" style="width:100%;justify-content:center" data-act="co-paynow">${UI.co.pay === 'card' ? 'Оплатить ' : 'Я оплатил(а) '}${fmtRub(cartSum())}</button></div>`;
+    <div class="df">${coTotals(coCalc())}<div class="sum-row total" style="padding:0 0 10px"><span>К оплате</span><span>${fmtRub(pay)}</span></div><button class="btn primary lg" style="width:100%;justify-content:center" data-act="co-paynow" ${UI.co.pay !== 'card' && !bank ? 'disabled' : ''}>${btn}</button></div>`;
   } else if (UI.drawer === 'paying') {
-    h = head('Оплата') + `<div class="db"><div class="spinner"></div><p style="text-align:center" class="muted">Ждём подтверждения оплаты от ЮKassa…</p></div>`;
+    const bank = bankById(UI.co.bank);
+    h = head('Оплата') + `<div class="db"><div class="spinner"></div><p style="text-align:center" class="muted">${UI.co.pay === 'card' ? 'Проверяем карту и ждём подтверждения от ЮKassa…' : `Открываем приложение «${esc(bank || 'банка')}». Подтвердите платёж там — заказ оформится сам.`}</p></div>`;
   } else if (UI.drawer === 'success') {
     const o = S.orders[UI.lastOrder];
     h = head('Заказ оплачен') + (o ? `<div class="db">${orderCardBody(o, true)}</div>
@@ -1683,12 +2036,29 @@ function cartDrawer() {
   }
   return `<div class="overlay" data-act="close-drawer" style="justify-content:flex-end;padding:0"></div><aside class="drawer">${h}</aside>`;
 }
+/* ----- оплата: банки для СБП и проверка карты ----- */
+const BANKS = [['sber', 'Сбербанк'], ['tbank', 'Т-Банк'], ['alfa', 'Альфа-Банк'], ['vtb', 'ВТБ'], ['gpb', 'Газпромбанк'], ['ozon', 'Озон Банк']];
+const BANKS_MORE = [['raif', 'Райффайзенбанк'], ['sovcom', 'Совкомбанк'], ['mts', 'МТС Банк'], ['pochta', 'Почта Банк'], ['yandex', 'Яндекс Банк'], ['psb', 'ПСБ'], ['rosbank', 'Росбанк'], ['uralsib', 'Уралсиб'], ['otkritie', 'Открытие'], ['rshb', 'Россельхозбанк']];
+const bankById = id => ((BANKS.concat(BANKS_MORE)).find(b => b[0] === id) || [])[1] || '';
+function cardBrand(num) { const d = String(num || '').replace(/\D/g, ''); return /^220[0-4]/.test(d) ? 'Мир' : /^4/.test(d) ? 'Visa' : /^(5[1-5]|2[2-7])/.test(d) ? 'Mastercard' : ''; }
+function luhnOk(d) { let t = 0; [...d].reverse().forEach((c, i) => { let x = +c; if (i % 2) { x *= 2; if (x > 9) x -= 9; } t += x; }); return t % 10 === 0; }
+function cardError() {
+  const d = UI.co.num.replace(/\D/g, '');
+  if (d.length < 16 || d.length > 19 || !luhnOk(d)) return 'Проверьте номер карты.';
+  const m = UI.co.exp.match(/^(\d{2})\s*\/?\s*(\d{2})$/); if (!m || +m[1] < 1 || +m[1] > 12) return 'Укажите срок действия в формате ММ/ГГ.';
+  const now = new Date(), y = 2000 + +m[2]; if (y < now.getFullYear() || (y === now.getFullYear() && +m[1] < now.getMonth() + 1)) return 'Срок действия карты истёк.';
+  if (!/^\d{3}$/.test(UI.co.cvc)) return 'CVC — три цифры на обороте карты.';
+  return '';
+}
 function placeOrder() {
   const need = needFor(UI.cart);
   const short = Object.entries(need).filter(([ing, q]) => available(ing) < q - 1e-9);
   if (short.length) { const dishes = Object.keys(UI.cart).filter(id => DISH[id].recipe.some(x => short.some(([i]) => i === x.ing))); UI.drawer = 'cart'; render(); toast('Пока вы оформляли, закончилось: ' + dishes.map(id => DISH[id].name).join(', '), 'warn', 6000); return; }
-  const tm = coTimes();
+  const tm = coTimes(), lc = coCalc(), L = lset();
   const o = buildOrder(S.catalog, Object.entries(UI.cart), { no: newOrderNo(), name: UI.co.name.trim(), phone: UI.co.phone.trim(), email: UI.co.email.trim(), card: UI.co.card.trim(), comment: UI.co.comment.trim(), mode: UI.co.mode, payMethod: UI.co.pay, readyAt: tm.t, minAt: tm.min });
+  Object.assign(o, { phone: fmtPhone(coKey()) || o.phone, staffDisc: lc.staffDisc, staffRole: lc.role, bonus: lc.bonus, paid: lc.pay, welcome: lc.welcome });
+  const tr = orderTrainerFor(lc.pay); if (tr) o.trainer = tr;
+  if (lc.welcome) Object.assign(o, { welcomeTtl: L.ttlDays, welcomeSpend: L.spendPct });
   fiscalOnPaid(o); saveOrder(o); addMyOrder(o.id);
   UI.cart = {}; UI.lastOrder = o.id; UI.drawer = 'success'; render();
 }
@@ -1731,7 +2101,7 @@ function orderCardBody(o, fresh) {
     <div class="parts">${ready}${wait}${got}</div>
     ${receiptRows(o)}
     ${o.items.map(it => `<div class="ci"><div class="e">${it.e}</div><div class="n">${esc(it.n)}${it.drink ? ` <span class="tiny muted">· ${DRINK_SUB[it.d] === 'water' ? 'бутылка' : 'стакан'}</span>` : ''}</div><b>× ${it.q}</b></div>`).join('')}
-    <div class="sum-row total"><span>${o.status === 'cancelled' ? 'Возвращено' : 'Оплачено'} ${o.payMethod === 'sbp' ? 'по СБП' : 'картой'}</span><span>${fmtRub(o.total)}</span></div>`;
+    ${orderLoyaltyRows(o)}<div class="sum-row total"><span>${o.status === 'cancelled' ? 'Возвращено' : 'Оплачено'} ${o.payMethod === 'sbp' ? 'по СБП' : 'картой'}</span><span>${fmtRub(paidOf(o))}</span></div>${orderWelcomeNote(o)}`;
 }
 function trackModal(o) {
   const steps = o.mode === 'cafe' ? [['paid', 'Принят'], ['cooking', 'Готовится'], ['ready', 'Готов'], ['placed', 'На стойке кафе'], ['done', 'Получен']]
@@ -1748,7 +2118,7 @@ function myOrdersModal() {
   const list = myOrders();
   return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(560px,100%)">
     <div class="mh"><h3>Мои заказы</h3><button class="x" data-act="close-modal">×</button></div>
-    <div class="mb">${list.length ? list.map(o => `<div class="ci" data-act="track" data-id="${o.id}" style="cursor:pointer"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${fmtRub(o.total)} · ${o.mode === 'cafe' ? 'в кафе' : 'наверху'}<div class="tiny muted">${fmtDate(o.readyAt)}, к ${fmtTime(o.readyAt)} · ${o.items.map(i => i.n).join(', ')}</div></div><span class="st ${STATUS[o.status].color}">${clientStatus(o)}</span></div>`).join('') : '<div class="empty">Вы ещё ничего не заказывали с этого устройства.</div>'}</div>
+    <div class="mb">${list.length ? list.map(o => `<div class="ci" data-act="track" data-id="${o.id}" style="cursor:pointer"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${fmtRub(paidOf(o))} · ${o.mode === 'cafe' ? 'в кафе' : 'наверху'}<div class="tiny muted">${fmtDate(o.readyAt)}, к ${fmtTime(o.readyAt)} · ${o.items.map(i => i.n).join(', ')}</div></div><span class="st ${STATUS[o.status].color}">${clientStatus(o)}</span></div>`).join('') : '<div class="empty">Вы ещё ничего не заказывали с этого устройства.</div>'}</div>
   </div></div>`;
 }
 
@@ -1904,14 +2274,14 @@ function posterMain() {
 }
 
 /* ===== Приложение управляющего ===== */
-const ADMIN_TABS = [['admin-menu', 'Меню и акции'], ['stock', 'Склад'], ['purchasing', 'Закупки'], ['receipts', 'Платежи и чеки'], ['dashboard', 'Сводка'], ['settings', 'Настройки']];
+const ADMIN_TABS = [['admin-menu', 'Меню и акции'], ['stock', 'Склад'], ['purchasing', 'Закупки'], ['receipts', 'Платежи и чеки'], ['loyalty', 'Клиенты и бонусы'], ['dashboard', 'Сводка'], ['settings', 'Настройки']];
 function adminHead() {
   const stockN = S.catalog.ingredients.filter(i => ingStatus(i)[0] !== 'ok').length;
   const rcQueue = Object.values(S.orders).reduce((s, o) => s + (o.receipts || []).filter(r => !rcInOfd(r)).length, 0);
   return staffHead('Управляющий', 'меню, склад, закупки, чеки', ADMIN_TABS.map(([id, n]) => [id, n, id === 'stock' ? stockN : id === 'receipts' ? rcQueue : 0]), UI.view, 'nav');
 }
 function adminMain() {
-  const v = { 'admin-menu': menuAdminView, stock: stockView, purchasing: purchasingView, receipts: receiptsView, dashboard: dashboardView, settings: settingsView }[UI.view] || menuAdminView;
+  const v = { 'admin-menu': menuAdminView, stock: stockView, purchasing: purchasingView, receipts: receiptsView, loyalty: loyaltyView, dashboard: dashboardView, settings: settingsView }[UI.view] || menuAdminView;
   const note = S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)}</div>` : '';
   return `<div class="awrap">${note}${v()}</div>`;
 }
@@ -2113,7 +2483,7 @@ function receiveModal(p) {
 /* ----- Сводка ----- */
 function dashboardView() {
   const now = Date.now(), today = Object.values(S.orders).filter(o => sameDay(o.createdAt, now) || sameDay(o.readyAt, now));
-  const paid = today.filter(o => o.status !== 'cancelled'), rev = paid.reduce((s, o) => s + o.total, 0);
+  const paid = today.filter(o => o.status !== 'cancelled'), rev = paid.reduce((s, o) => s + paidOf(o), 0);
   const done = today.filter(o => ['placed', 'done'].includes(o.status) && o.history.placed);
   const ontime = done.length ? done.filter(o => o.history.placed <= o.readyAt + 60e3).length / done.length * 100 : 100;
   const gymN = paid.filter(o => o.mode === 'gym').length;
@@ -2227,7 +2597,7 @@ function fiscalSettingsPanel() {
 
 /* ===== Приложения и маршруты ===== */
 const APPS = [['client', 'Клиент', 'menu'], ['kitchen', 'Кухня', 'kitchen'], ['waiter', 'Официант', 'waiter'], ['locker', 'Шкаф', 'locker'], ['manager', 'Управляющий', 'admin-menu'], ['poster', 'QR в зале', 'poster']];
-const MANAGER_VIEWS = ['admin-menu', 'stock', 'purchasing', 'receipts', 'dashboard', 'settings'];
+const MANAGER_VIEWS = ['admin-menu', 'stock', 'purchasing', 'receipts', 'loyalty', 'dashboard', 'settings'];
 function readHash() {
   const h = location.hash.slice(1);
   if (MANAGER_VIEWS.includes(h)) { UI.app = 'manager'; UI.view = h; UI.mView = h; }
@@ -2256,6 +2626,8 @@ function layerHTML() {
     if (m.kind === 'dish' && DISH[m.id]) h += dishModal(DISH[m.id]);
     else if (m.kind === 'track' && S.orders[m.id]) h += trackModal(S.orders[m.id]);
     else if (m.kind === 'my') h += myOrdersModal();
+    else if (m.kind === 'login') h += loginModal();
+    else if (m.kind === 'profile' && sessionKey()) h += profileModal();
     else if (m.kind === 'receipt' && S.orders[m.id]) { const o = S.orders[m.id], r = (o.receipts || []).find(x => x.id === m.r); if (r) h += receiptModal(o, r, m.back); }
     else if (m.kind === 'edit' && UI.editDish) h += editDishModal();
     else if (m.kind === 'op') h += opModal();
@@ -2288,7 +2660,8 @@ function renderSoon(ms = 120) { clearTimeout(_rs); _rs = setTimeout(render, ms);
 /* ===== Действия ===== */
 const byId = id => S.orders[id];
 const rcCount = o => (o && o.receipts ? o.receipts.length : 0);
-function closingToast(id, n0) { const o = byId(id); if (o && rcCount(o) > n0) { const r = o.receipts[o.receipts.length - 1]; toast(`Второй чек «Полный расчёт» отправлен ${r.ch === 'email' ? 'на ' + maskContact(r.contact) : 'SMS'}`, 'info', 5000); } }
+function welcomeToast(id) { const o = byId(id); if (o && o.welcome && o.status === 'done') toast(`🎁 Начислено ${fmtRub(o.welcome)} бонусов — оплачивайте ими до ${fmtRub(Math.floor(o.welcome * (o.welcomeSpend || 25) / 100))} в каждом следующем заказе`, 'ok', 7000); }
+function closingToast(id, n0) { welcomeToast(id); const o = byId(id); if (o && rcCount(o) > n0) { const r = o.receipts[o.receipts.length - 1]; toast(`Второй чек «Полный расчёт» отправлен ${r.ch === 'email' ? 'на ' + maskContact(r.contact) : 'SMS'}`, 'info', 5000); } }
 const ACT = {
   app: el => go(el.dataset.v),
   nav: el => { UI.mView = el.dataset.v; UI.modal = null; go(el.dataset.v); },
@@ -2308,20 +2681,69 @@ const ACT = {
   'open-cart': () => { UI.drawer = 'cart'; UI.modal = null; render(); },
   'close-drawer': () => { if (UI.drawer === 'paying') return; UI.drawer = null; render(); },
   'close-modal': () => { UI.modal = null; UI.pickConfirm = null; UI.editDish = null; UI.confirmDel = false; UI.rcv = null; render(); },
-  'co-next': () => { UI.drawer = 'checkout'; UI.payErr = ''; if (!UI.co.email) UI.co.email = LS.get('en-email') || ''; render(); },
+  'co-next': () => {
+    UI.drawer = 'checkout'; UI.payErr = ''; if (!UI.co.email) UI.co.email = LS.get('en-email') || '';
+    const k = sessionKey(); if (k && !UI.co.phone) { const a = account(k); UI.co.phone = fmtPhone(k); UI.co.name = UI.co.name || a.name; UI.co.email = UI.co.email || a.email; UI.co.card = UI.co.card || a.card; UI.co.trainer = UI.co.trainer || a.trainerCode; }
+    render();
+  },
+  'co-bonus': () => { UI.co.useBonus = UI.co.useBonus === false; render(); },
+  profile: () => { UI.otp = null; UI.otpErr = ''; UI.modal = { kind: sessionKey() ? 'profile' : 'login' }; render(); },
+  'login-demo': el => { UI.loginPhone = fmtPhone(el.dataset.v); UI.otp = null; render(); },
+  'otp-send': el => {
+    const key = normPhone(el.dataset.ctx === 'co' ? UI.co.phone : UI.loginPhone);
+    if (!key) { UI.otpErr = ''; toast('Введите номер телефона полностью', 'warn'); return; }
+    UI.otp = { key, code: String(1000 + Math.floor(Math.random() * 9000)), ctx: el.dataset.ctx }; UI.otpCode = ''; UI.otpErr = '';
+    toast(`Код отправлен на ${fmtPhone(key)} (демо: ${UI.otp.code})`, 'info', 6000); render();
+  },
+  'otp-check': el => {
+    if (!UI.otp || UI.otpCode.trim() !== UI.otp.code) { UI.otpErr = 'Код не подходит — проверьте цифры.'; render(); return; }
+    const key = UI.otp.key; setSession(key); UI.otp = null; UI.otpCode = ''; UI.otpErr = '';
+    const a = account(key);
+    if (el.dataset.ctx === 'co') { UI.co.name = UI.co.name || a.name; UI.co.email = UI.co.email || a.email; UI.co.card = UI.co.card || a.card; UI.co.trainer = UI.co.trainer || a.trainerCode; }
+    else { UI.modal = { kind: 'profile' }; if (!UI.co.phone) UI.co.phone = fmtPhone(key); }
+    toast(a.staff ? `Номер подтверждён · ${a.staff.role.toLowerCase()} клуба: скидка ${lset().staffDiscount}%` : a.live.length ? 'Номер подтверждён — с возвращением!' : `Номер подтверждён · за первый заказ вернём ${lset().welcomePct}% бонусами`, 'ok', 5000); render();
+  },
+  logout: () => { setSession(null); UI.otp = null; if (UI.modal && UI.modal.kind === 'profile') UI.modal = null; UI.co.useBonus = true; render(); },
+  'st-add': () => {
+    const k = normPhone(UI.stPhone); if (!UI.stName.trim() || !k) { toast('Укажите имя и телефон полностью', 'warn'); return; }
+    const L = lset(); if (L.staff.some(s => normPhone(s.phone) === k)) { toast('Этот номер уже в списке', 'warn'); return; }
+    const code = UI.stRole === 'Тренер' ? nextTrainerCode() : undefined;
+    L.staff.push(Object.assign({ phone: fmtPhone(k), name: UI.stName.trim(), role: UI.stRole }, code ? { code } : {})); UI.stName = ''; UI.stPhone = ''; saveCatalog();
+    toast(code ? `Добавлено: скидка включится при следующем заказе, ID тренера — ${code}` : 'Добавлено: скидка включится при следующем заказе с этого номера', 'ok', 6000); render();
+  },
+  'st-del': el => { const L = lset(); const s = L.staff.splice(+el.dataset.i, 1)[0]; saveCatalog(); toast(`${s ? s.name : 'Сотрудник'} убран(а) из списка — скидки больше нет`); render(); },
   'co-back': () => { UI.drawer = UI.drawer === 'pay' ? 'checkout' : 'cart'; render(); },
   'co-mode': el => { UI.co.mode = el.dataset.v; render(); },
   'co-when': el => { const v = el.dataset.v; UI.co.when = ['asap', 'custom'].includes(v) ? v : +v; if (v === 'custom' && !UI.co.time) { const t = coTimes(); if (t) UI.co.time = fmtTime(t.min + 15 * MIN); } render(); },
   'co-topay': () => {
     if (!UI.co.name.trim()) { UI.payErr = 'Укажите имя.'; render(); return; }
     if (UI.co.phone.replace(/\D/g, '').length < 10) { UI.payErr = 'Укажите телефон: пришлём статус заказа.'; render(); return; }
+    if (!coKey()) { UI.payErr = 'Подтвердите номер кодом — так мы узнаем вас в следующий раз и начислим кэшбэк.'; render(); return; }
     if (UI.co.email.trim() && !validEmail(UI.co.email)) { UI.payErr = 'Проверьте email — на него придёт чек.'; render(); return; }
+    if (String(UI.co.trainer || '').trim() && lset().trainerOn && !(account(coKey()).staff) && !trainerFind(UI.co.trainer)) { UI.payErr = 'Тренер с таким ID не найден — проверьте номер или оставьте поле пустым.'; render(); return; }
     LS.set('en-email', UI.co.email.trim());
     if (!UI.co.pay) UI.co.pay = fset().sbpDefault ? 'sbp' : 'card';
+    if (!UI.co.bank) UI.co.bank = LS.get('en-sbp-bank');
     UI.payErr = ''; UI.drawer = 'pay'; render();
   },
-  'co-pay': el => { UI.co.pay = el.dataset.v; render(); },
-  'co-paynow': () => { UI.drawer = 'paying'; render(); setTimeout(placeOrder, 1300); },
+  'co-pay': el => { UI.co.pay = el.dataset.v; UI.payErr = ''; render(); },
+  'co-bank': el => { UI.co.bank = el.dataset.v; LS.set('en-sbp-bank', UI.co.bank); UI.payErr = ''; render(); },
+  'co-paynow': () => {
+    const err = UI.co.pay === 'card' ? cardError() : (UI.co.bank ? '' : 'Выберите банк, в приложении которого подтвердите платёж.');
+    if (err) { UI.payErr = err; render(); return; }
+    UI.payErr = ''; UI.drawer = 'paying'; render(); setTimeout(placeOrder, 1300);
+  },
+  'tp-pay': el => {
+    const { code, mk } = el.dataset, r = trainerStats()[code], x = r && r.months[mk]; if (!x) return;
+    const amount = x.fee - paidOut(code, mk); if (amount <= 0) return;
+    lset().payouts.push({ mk, code, name: r.name, amount, n: x.n, at: Date.now() }); saveCatalog();
+    toast(`Выплата ${fmtRub(amount)} — ${r.name} (ID ${code}) за ${monthLabel(mk)} отмечена`, 'ok', 5000); render();
+  },
+  'tp-pay-all': el => {
+    const mk = el.dataset.mk; let sum = 0, n = 0;
+    Object.values(trainerStats()).forEach(r => { const x = r.months[mk]; if (!x) return; const amount = x.fee - paidOut(r.code, mk); if (amount > 0) { lset().payouts.push({ mk, code: r.code, name: r.name, amount, n: x.n, at: Date.now() }); sum += amount; n++; } });
+    if (!n) return; saveCatalog(); toast(`Выплачено ${fmtRub(sum)} — ${n} ${plural(n, 'тренеру', 'тренерам', 'тренерам')} за ${monthLabel(mk)}`, 'ok', 5000); render();
+  },
   track: el => { UI.drawer = null; UI.modal = { kind: 'track', id: el.dataset.id }; render(); },
   'my-orders': () => { UI.modal = { kind: 'my' }; render(); },
   'cancel-order': el => { if (cancelOrder(el.dataset.id)) toast('Заказ отменён: ЮKassa вернёт деньги, чек возврата придёт на email или SMS', 'ok', 5000); else toast('Заказ уже готовится — отменить нельзя', 'warn'); render(); },
@@ -2422,7 +2844,15 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('input', e => {
   const t = e.target, ds = t.dataset || {};
-  if (ds.co) { UI.co[ds.co] = t.value; if (ds.co === 'time') renderSoon(400); return; }
+  if (ds.co) {
+    if (ds.co === 'num') { const d = t.value.replace(/\D/g, '').slice(0, 19); t.value = d.replace(/(\d{4})(?=\d)/g, '$1 '); }
+    if (ds.co === 'exp') { const d = t.value.replace(/\D/g, '').slice(0, 4); t.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d; }
+    if (ds.co === 'cvc') t.value = t.value.replace(/\D/g, '').slice(0, 3);
+    UI.co[ds.co] = t.value;
+    if (UI.payErr && ['num', 'exp', 'cvc'].includes(ds.co)) { UI.payErr = ''; renderSoon(400); }
+    if (ds.co === 'time') renderSoon(400); if (ds.co === 'trainer') renderSoon(250); if (ds.co === 'num') renderSoon(500);
+    return;
+  }
   if (ds.f === 'q') { UI.q = t.value; renderSoon(160); return; }
   if (ds.ui) { UI[ds.ui] = t.value; if (ds.ui !== 'lockIn') renderSoon(160); return; }
   if (ds.ed) { UI.editDish[ds.ed] = t.value; return; }
@@ -2434,9 +2864,11 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const t = e.target, ds = t.dataset || {};
   if (ds.f === 'sort') { UI.sort = t.value; render(); return; }
+  if (ds.uiSel === 'sbpOther') { if (t.value) { UI.co.bank = t.value; LS.set('en-sbp-bank', t.value); UI.payErr = ''; } render(); return; }
   if (ds.uiSel) { UI[ds.uiSel] = t.value; render(); return; }
   if (ds.dish) { const d = DISH[ds.id]; if (!d) return; let v = Math.max(0, +t.value || 0); if (ds.dish === 'discount') v = Math.min(90, v); d[ds.dish] = v; saveCatalog(); render(); return; }
   if (ds.set) { S.catalog.settings[ds.set] = +t.value; saveCatalog(); render(); return; }
+  if (ds.lset) { const L = lset(); L[ds.lset] = t.type === 'checkbox' ? t.checked : Math.max(0, +t.value || 0); saveCatalog(); toast('Правила программы сохранены — действуют для новых заказов', 'ok'); render(); return; }
   if (ds.fset) { const f = fset(), num = ['cardFee', 'sbpFee', 'feeVat'].includes(ds.fset); f[ds.fset] = t.type === 'checkbox' ? t.checked : num ? Math.max(0, +String(t.value).replace(',', '.') || 0) : t.value; saveCatalog(); toast('Настройки кассы сохранены — действуют для новых заказов', 'ok'); render(); return; }
   if (ds.setp) { const [a, b] = ds.setp.split('.'); const v = Math.max(0, +t.value || 0); if (b) S.catalog.settings[a][b] = a === 'stations' ? Math.max(1, v) : v; else S.catalog.settings[a] = v; saveCatalog(); toast('Планировщик пересчитал задачи'); render(); return; }
   if (ds.pchoice != null) { UI.pChoice[ds.id] = t.value; render(); return; }
