@@ -520,3 +520,6 @@ body[data-app="kitchen"] .kbtn:disabled{opacity:.55}
 .panel.later h3{margin:0 0 6px}
 .laterlist{display:flex;flex-wrap:wrap;gap:8px}
 .laterlist .li{background:var(--soft);border-radius:10px;padding:6px 10px;font-size:13.5px}
+
+button.dbstate{background:none;border:0;padding:4px 6px;border-radius:8px;cursor:pointer;font:inherit;color:#b7c2bb}
+button.dbstate:hover{background:rgba(255,255,255,.06)}

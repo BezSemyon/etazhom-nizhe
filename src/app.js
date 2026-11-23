@@ -15,7 +15,7 @@ function demobarHTML() {
   const txt = live ? 'Общая база: все устройства видят одни данные' : S.dbStatus === 'connecting' ? 'Подключаем общую базу…' : 'Демо-данные в этом браузере · вкладки синхронизируются';
   return `<span class="tag">Прототип «Этажом ниже»</span>
     <div class="seg">${APPS.map(([id, n, h]) => `<button class="${UI.app === id ? 'on' : ''}" data-act="app" data-v="${id === 'manager' ? UI.mView || h : h}">${n}</button>`).join('')}</div>
-    <span class="spacer"></span><span class="dbstate"><i class="dot ${live ? 'live' : 'local'}"></i><span class="hide-m">${txt}</span><span class="show-m">${live ? 'общая база' : 'этот браузер'}</span></span>
+    <span class="spacer"></span><button class="dbstate" data-act="db-info"><i class="dot ${live ? 'live' : 'local'}"></i><span class="hide-m">${txt}</span><span class="show-m">${live ? 'общая база' : 'этот браузер'}</span></button>
     <button class="reset" data-act="reset-demo">${UI.confirmReset ? 'Точно сбросить?' : 'Сбросить демо'}</button>`;
 }
 let _prevLayer = '';
@@ -30,6 +30,7 @@ function layerHTML() {
     else if (m.kind === 'track' && S.orders[m.id]) h += trackModal(S.orders[m.id]);
     else if (m.kind === 'my') h += myOrdersModal();
     else if (m.kind === 'login') h += loginModal();
+    else if (m.kind === 'dbinfo') h += dbInfoModal();
     else if (m.kind === 'profile' && sessionKey()) h += profileModal();
     else if (m.kind === 'receipt' && S.orders[m.id]) { const o = S.orders[m.id], r = (o.receipts || []).find(x => x.id === m.r); if (r) h += receiptModal(o, r, m.back); }
     else if (m.kind === 'edit' && UI.editDish) h += editDishModal();
@@ -96,6 +97,8 @@ const ACT = {
     const k = sessionKey(); if (k && !UI.co.phone) UI.co.phone = fmtPhone(k);
     prefillKnown(); if (!UI.co.rcChosen) UI.co.rcTo = UI.co.email.trim() ? 'email' : 'pdf'; render();
   },
+  'db-info': () => { UI.modal = { kind: 'dbinfo' }; render(); },
+  'db-retry': () => { S.sync.tries = 0; DB ? ordersQuery().get().then(applyOrders).then(() => toast('Данные обновлены', 'ok')).catch(e => dbError(e)) : initDb(); render(); },
   'co-bonus': () => { UI.co.useBonus = UI.co.useBonus === false; render(); },
   'otp-send': () => otpSend(),
   'otp-verify': () => otpVerify(),
@@ -317,3 +320,20 @@ function boot() {
   initDb();
 }
 document.addEventListener('DOMContentLoaded', boot);
+
+function dbInfoModal() {
+  const sy = S.sync, live = S.mode === 'db', ago = t => t ? Math.max(0, Math.round((Date.now() - t) / 1000)) + ' с назад' : '—';
+  const state = live ? '🟢 Подключена — все устройства видят одни данные'
+    : S.dbStatus === 'connecting' ? '⏳ Подключаемся…'
+      : S.dbStatus === 'unavailable' ? '🔴 Недоступна в этом окне'
+        : S.dbStatus === 'error' || S.dbStatus === 'slow' ? '🟠 Не отвечает' : '⚪ Не используется (файл открыт не из claude.ai)';
+  const row = (k, v) => `<div class="row lrow"><span class="muted">${k}</span><b>${v}</b></div>`;
+  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(480px,100%)">
+    <div class="mh"><h3>Общая база демо</h3><button class="x" data-act="close-modal">×</button></div>
+    <div class="mb">${row('Состояние', state)}
+      ${live ? row('Заказов в общей базе', sy.orders) + row('Последнее обновление', ago(sy.at)) + row('Сохранено с этого устройства', sy.writes) + (sy.pushed ? row('Отправлено «застрявших» заказов', sy.pushed) : '') : ''}
+      ${sy.error ? `<div class="note red" style="margin-top:8px">Последняя ошибка (${ago(sy.errorAt)}): ${esc(sy.error)}</div>` : ''}
+      ${S.dbNote ? `<div class="note" style="margin-top:8px">${esc(S.dbNote)}</div>` : ''}
+      <div class="small muted" style="margin-top:10px">Чтобы данные были общими, откройте демо на каждом устройстве по одной и той же ссылке, войдя в один аккаунт claude.ai. Зелёная точка в шапке — устройство подключено к общей базе; серая — работает только со своими данными.</div>
+      <button class="btn primary" data-act="db-retry" style="width:100%;justify-content:center;margin-top:12px">${live ? 'Обновить данные сейчас' : 'Подключиться ещё раз'}</button></div></div></div>`;
+}

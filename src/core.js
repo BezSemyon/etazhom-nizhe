@@ -180,7 +180,8 @@ function buildSeedLockers(orders) {
 }
 
 /* ===== Состояние ===== */
-const S = { catalog: null, orders: {}, lockers: null, mode: 'local', dbStatus: 'off', dbNote: '', version: 0 };
+const S = { catalog: null, orders: {}, lockers: null, mode: 'local', dbStatus: 'off', dbNote: '', version: 0,
+  sync: { at: 0, orders: 0, writes: 0, pushed: 0, error: '', errorAt: 0, tries: 0 } };
 let DISH = {}, ING = {}, SUP = {};
 let _cache = {};
 function reindex() {
@@ -220,14 +221,15 @@ let DB = null, USER = null, CAN_WRITE = null;
 const writeChains = {};
 function dbSet(path, data) {
   const prev = writeChains[path] || Promise.resolve();
-  const next = prev.then(() => DB.doc(path).set(clone(data))).catch(e => dbError(e));
+  const next = prev.then(() => DB.doc(path).set(clone(data))).then(() => { S.sync.writes++; if (S.sync.error) { S.sync.error = ''; render(); } }).catch(e => dbError(e));
   writeChains[path] = next; return next;
 }
 function dbError(e) {
-  const code = e && e.code;
+  const code = (e && e.code) || (e && e.name) || 'unknown';
+  S.sync.error = code + (e && e.message ? ': ' + String(e.message).slice(0, 140) : ''); S.sync.errorAt = Date.now();
   if (code === 'invalid_argument' && CAN_WRITE !== true) { S.dbNote = 'У вас доступ только на просмотр — изменения не сохраняются в общей базе.'; toast(S.dbNote, 'warn'); }
   else if (code === 'quota_exceeded') toast('Общая база переполнена: сбросьте демо-данные.', 'warn');
-  else if (code) toast('Ошибка общей базы: ' + code, 'warn');
+  else toast('Не удалось сохранить в общую базу (' + code + ') — данные пока только на этом устройстве', 'warn', 7000);
   render();
 }
 let _catTimer = null;
@@ -246,10 +248,18 @@ function upgradeCatalog(c) {
 }
 async function initDb() {
   const c = window.claude;
-  if (!c || typeof c.use !== 'function') return;
+  if (!c || typeof c.use !== 'function') return;             // файл открыт без claude.ai — работаем в браузере
+  if (DB) return;
   let db, user;
-  try { [db, user] = await Promise.all([c.use('db'), c.use('user')]); } catch (e) { return; }
-  if (!db) return;
+  S.dbStatus = 'connecting'; S.sync.tries++; render();
+  try { [db, user] = await Promise.all([c.use('db'), c.use('user')]); } catch (e) { db = null; }
+  if (!db) {
+    S.dbStatus = 'unavailable';
+    S.dbNote = 'В этом окне общая база недоступна — заказы и изменения видны только на этом устройстве. Откройте демо по ссылке claude.ai/artifact/… в браузере, войдя в свой аккаунт.';
+    render();
+    if (S.sync.tries < 4) setTimeout(initDb, 15000);         // приложение могло не ответить вовремя — пробуем ещё
+    return;
+  }
   DB = db; USER = user;
   try { CAN_WRITE = user ? await Promise.resolve(user.can('data.write')) : null; } catch (e) { CAN_WRITE = null; }
   let isOwner = false; try { isOwner = user ? !!(await Promise.resolve(user.isOwner())) : false; } catch (e) { }
@@ -286,11 +296,29 @@ async function migrateSharedCatalog() {
   } catch (e) { dbError(e); }
 }
 let _ordersPrimed = false;
+const ordersQuery = () => DB.collection('orders').orderBy('readyAt', 'desc').limit(400);
+function applyOrders(qs) {
+  const m = {}; qs.docs.forEach(d => { const o = d.data(); if (o && o.id && o.tasks) m[o.id] = clone(o); });
+  const sig = JSON.stringify(m);
+  S.sync.at = Date.now(); S.sync.orders = Object.keys(m).length;
+  if (sig === applyOrders.sig) return;
+  applyOrders.sig = sig;
+  const before = S.orders; S.orders = m; _cache = {}; if (_ordersPrimed) onOrdersChanged(before);
+  if (!_ordersPrimed) { _ordersPrimed = true; pushLocalOrders(m); }
+  render();
+}
+/* заказы, оформленные на этом устройстве, пока общая база была недоступна, — отправляем туда */
+function pushLocalOrders(inDb) {
+  const local = LS.get(LS_ORD) || {}, mine = new Set(myOrderIds());
+  const since = Math.max(Date.now() - 864e5, (S.catalog && S.catalog.seededAt) || 0);     // после «Сбросить демо» старое не воскрешаем
+  const stuck = Object.values(local).filter(o => o && o.id && o.tasks && !o.demo && !inDb[o.id] && (o.createdAt || 0) > since && (mine.has(o.id) || o.status !== 'pending'));
+  stuck.forEach(o => { S.orders[o.id] = o; dbSet('orders/' + o.id, o); });
+  if (stuck.length) { S.sync.pushed += stuck.length; toast(`Отправили в общую базу ${stuck.length} ${plural(stuck.length, 'заказ', 'заказа', 'заказов')} с этого устройства`, 'ok', 6000); }
+}
 function subscribeRest() {
-  DB.collection('orders').orderBy('readyAt', 'desc').limit(400).onSnapshot(qs => {
-    const m = {}; qs.docs.forEach(d => { const o = d.data(); if (o && o.id && o.tasks) m[o.id] = clone(o); });
-    const before = S.orders; S.orders = m; _cache = {}; if (_ordersPrimed) onOrdersChanged(before); _ordersPrimed = true; render();
-  }, err => { S.dbNote = 'Заказы из общей базы не загрузились (' + (err && err.code) + ').'; render(); });
+  ordersQuery().onSnapshot(applyOrders, err => { S.sync.error = 'заказы: ' + (err && err.code); S.dbNote = 'Заказы из общей базы не загрузились (' + (err && err.code) + ').'; render(); });
+  /* страховка: если живой поток недоступен, платформа обновляет данные раз в ~30 с — подтягиваем заказы сами каждые 8 с */
+  setInterval(() => { if (S.mode === 'db' && document.visibilityState === 'visible') ordersQuery().get().then(applyOrders).catch(e => { S.sync.error = 'обновление: ' + ((e && e.code) || 'unknown'); }); }, 8000);
   DB.doc('shop/lockers').onSnapshot(snap => { if (snap.exists) { S.lockers = clone(snap.data()); _cache = {}; render(); } }, () => { });
 }
 async function writeSeed() {
