@@ -502,6 +502,12 @@ body[data-app="poster"] #head{display:none}
 .bp-card .brand{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#f1f3f5;border:1px solid #dde3e8;font-size:11px;font-weight:700}
 .rcrow .btn.sm+.btn.sm{margin-left:6px}
 
+.otp{margin-top:8px}
+.callsim{display:flex;gap:10px;align-items:center;margin-top:8px;padding:8px 10px;border-radius:12px;background:#1f2a24;color:#fff;font-size:13px}
+.callsim>span:first-child{font-size:20px}
+.callsim b{white-space:nowrap;letter-spacing:.3px}
+.callsim .tiny{color:#b9c4bd}
+
 .site-head,.admin-head{top:var(--dbh,38px)}
 </style>
 </head>
@@ -922,7 +928,7 @@ const FIT_W = [1.2, 1.05, 1.15, 1.05, 0.9, 0.8, 0.65];
 const FAM_W = [0.8, 0.8, 0.85, 0.9, 1.2, 1.5, 1.4];
 const DEFAULT_SETTINGS = { safety: 20, growth: 0, promo: true, stations: { hot: 3, cold: 2, bar: 2 }, packMin: 2, deliver: { locker: 5, counter: 4, cafe: 0 }, holdMax: 10,
   fiscal: { scheme: 'two', sno: 'usn', vat: 'none', subject: 'goods', sbpDefault: true, cardFee: 2.5, sbpFee: 0.7, feeVat: 0 },
-  loyalty: { on: true, welcomePct: 100, welcomeCap: 1000, spendPct: 25, ttlDays: 90, staffDiscount: 20, clubFee: 5, trainerOn: true, trainerPct: 5, payouts: [],
+  loyalty: { on: true, welcomePct: 100, welcomeCap: 1000, spendPct: 25, ttlDays: 90, staffDiscount: 20, clubFee: 5, trainerOn: true, trainerPct: 5, payouts: [], confirmCode: true,
     staff: [{ phone: '+7 900 111-11-11', name: 'Алексей Смирнов', role: 'Тренер', code: '101' }, { phone: '+7 900 111-22-22', name: 'Ирина Котова', role: 'Тренер', code: '102' }, { phone: '+7 900 111-33-33', name: 'Ольга Ветрова', role: 'Администратор клуба' }] } };
 const STATUS = {
   paid:       { short: 'Принят', name: 'Принят, ждёт старта на кухне', color: 'blue' },
@@ -1666,14 +1672,16 @@ function account(key) {
       firstEligible: !staff && L.on && live.length === 0 };
   });
 }
-function loyaltyCalc(key, sum, useBonus) {
-  const L = lset(), r = { sum, staffDisc: 0, bonus: 0, welcome: 0, pay: sum, acc: null, role: '' };
+/* trusted = номер подтверждён кодом на этом устройстве: без этого скидка тренера и оплата бонусами
+   показываются, но не применяются (lockedStaff / lockedBonus) */
+function loyaltyCalc(key, sum, useBonus, trusted = true) {
+  const L = lset(), r = { sum, staffDisc: 0, bonus: 0, welcome: 0, pay: sum, acc: null, role: '', lockedStaff: 0, lockedBonus: 0 };
   if (!key) return r;
   const a = account(key); r.acc = a;
-  if (a.staff) { r.role = a.staff.role; r.staffDisc = Math.round(sum * L.staffDiscount / 100); }
+  if (a.staff) { const d = Math.round(sum * L.staffDiscount / 100); if (trusted) { r.role = a.staff.role; r.staffDisc = d; } else r.lockedStaff = d; }
   else if (L.on) {
     if (a.firstEligible) r.welcome = Math.min(Math.round(sum * L.welcomePct / 100), L.welcomeCap > 0 ? L.welcomeCap : Infinity);
-    else if (useBonus && a.balance > 0) r.bonus = Math.max(0, Math.min(a.perOrder, a.balance, sum - 1));
+    else if (useBonus && a.balance > 0) { const b = Math.max(0, Math.min(a.perOrder, a.balance, sum - 1)); if (trusted) r.bonus = b; else r.lockedBonus = b; }
   }
   r.pay = sum - r.staffDisc - r.bonus; return r;
 }
@@ -1755,12 +1763,44 @@ const knownPhones = () => LS.get(LS_KNOWN) || [];
 const isKnownPhone = k => !!k && knownPhones().includes(k);
 function rememberPhone(k) { if (!k) return; const a = knownPhones().filter(x => x !== k); a.push(k); LS.set(LS_KNOWN, a.slice(-5)); }
 const coKey = () => normPhone(UI.co.phone);
-const coCalc = () => loyaltyCalc(coKey(), cartSum(), UI.co.useBonus !== false);
+/* код (звонок) — только перед оплатой бонусами и скидкой тренера, один раз на устройство */
+const LS_TRUSTED = 'en-trusted-phones';
+const trustedPhones = () => LS.get(LS_TRUSTED) || [];
+const isTrusted = k => lset().confirmCode === false || (!!k && trustedPhones().includes(k));
+function trustPhone(k) { if (!k) return; const a = trustedPhones().filter(x => x !== k); a.push(k); LS.set(LS_TRUSTED, a.slice(-5)); }
+function untrustPhone(k) { LS.set(LS_TRUSTED, trustedPhones().filter(x => x !== k)); }
+const coCalc = () => loyaltyCalc(coKey(), cartSum(), UI.co.useBonus !== false, isTrusted(coKey()));
+function otpBlock(why) {
+  const key = coKey(), o = UI.otp && UI.otp.key === key ? UI.otp : null;
+  if (!o) return `<div class="otp"><div class="tiny muted">${why} Подтвердите номер один раз — на этом устройстве код больше не понадобится.</div>
+    <button class="btn sm primary" style="margin-top:8px" data-act="otp-send">📞 Подтвердить номер звонком</button>${UI.otpErr ? `<div class="tiny" style="color:var(--red);margin-top:6px">${esc(UI.otpErr)}</div>` : ''}</div>`;
+  return `<div class="otp"><div class="tiny muted">Звоним на ваш номер и сразу сбрасываем — отвечать не нужно. Введите <b>4 последние цифры</b> номера, с которого позвонили.</div>
+    <div class="callsim"><span>📞</span><div><b>+7 (495) 215-${o.code.slice(0, 2)}-${o.code.slice(2)}</b><div class="tiny">входящий звонок · в демо — вместо настоящего</div></div></div>
+    <div class="row" style="gap:8px;margin-top:8px"><input class="input" style="width:110px;letter-spacing:4px;text-align:center" data-otp="code" value="${esc(UI.otpCode || '')}" maxlength="4" inputmode="numeric" autocomplete="one-time-code" placeholder="____">
+      <button class="btn sm primary" data-act="otp-verify">Подтвердить</button></div>
+    <div class="tiny muted" style="margin-top:6px"><button class="lnk" data-act="otp-send">Позвонить ещё раз</button></div>
+    ${UI.otpErr ? `<div class="tiny" style="color:var(--red);margin-top:6px">${esc(UI.otpErr)}</div>` : ''}</div>`;
+}
+function otpSend() {
+  const key = coKey(); if (!key) return;
+  const o = UI.otp && UI.otp.key === key ? UI.otp : null;
+  if (o && Date.now() - o.at < 60000) { toast(`Позвонить ещё раз можно через ${Math.ceil((60000 - (Date.now() - o.at)) / 1000)} с`, 'info'); return; }
+  UI.otp = { key, code: String(Math.floor(Math.random() * 10000)).padStart(4, '0'), at: Date.now(), tries: 0 }; UI.otpCode = ''; UI.otpErr = '';
+  render(); setTimeout(() => { const i = document.querySelector('[data-otp="code"]'); if (i) i.focus(); }, 50);
+}
+function otpVerify() {
+  const o = UI.otp, v = String(UI.otpCode || '').trim(); if (!o || v.length < 4) return;
+  if (v === o.code) { trustPhone(o.key); UI.otp = null; UI.otpCode = ''; UI.otpErr = ''; toast('Номер подтверждён — на этом устройстве код больше не понадобится', 'ok', 5000); render(); return; }
+  o.tries++; UI.otpCode = '';
+  if (o.tries >= 5) { UI.otp = null; UI.otpErr = 'Слишком много неверных попыток — запросите новый звонок'; }
+  else UI.otpErr = `Неверный код. Осталось попыток: ${5 - o.tries}`;
+  render(); setTimeout(() => { const i = document.querySelector('[data-otp="code"]'); if (i) i.focus(); }, 50);
+}
 
 /* ----- номер телефона вместо входа по коду ----- */
 function phoneHint() {
   const key = coKey(), L = lset();
-  if (!key) return `<div class="tiny muted" style="margin-top:4px">По номеру узнаем вас в следующий раз${L.on ? ', начислим кэшбэк' : ''} и пришлём статус заказа. Код из SMS не нужен.</div>`;
+  if (!key) return `<div class="tiny muted" style="margin-top:4px">По номеру узнаем вас в следующий раз${L.on ? ', начислим кэшбэк' : ''} и пришлём статус заказа. Пароль не нужен; код по звонку — только для оплаты бонусами и скидки тренера.</div>`;
   const a = account(key);
   const t = a.staff ? `${esc(a.staff.role)} клуба — скидка ${L.staffDiscount}%` : a.live.length ? 'С возвращением! Узнали ваш номер' : L.on ? `Новый номер — за первый заказ вернём ${L.welcomePct}% бонусами` : 'Новый номер';
   return `<div class="verified">✓ ${t}</div>`;
@@ -1768,17 +1808,21 @@ function phoneHint() {
 function coLoyaltyBlock() {
   const key = coKey(); if (!key) return '';
   const L = lset(), c = coCalc(), a = c.acc;
-  if (a.staff) return `<div class="loy staff"><span class="li">🏋️</span><div><b>${esc(a.staff.role)} клуба: скидка ${L.staffDiscount}%</b><div class="tiny muted">−${fmtRub(c.staffDisc)} · номер есть в списке сотрудников, который присылает клуб</div></div></div>`;
+  if (a.staff) return `<div class="loy staff"><span class="li">🏋️</span><div style="flex:1"><b>${esc(a.staff.role)} клуба: скидка ${L.staffDiscount}%</b>${c.lockedStaff
+    ? `<div class="tiny muted">−${fmtRub(c.lockedStaff)} · применится после подтверждения номера</div>${otpBlock('Скидка — только для тренеров и сотрудников клуба.')}`
+    : `<div class="tiny muted">−${fmtRub(c.staffDisc)} · номер есть в списке сотрудников, который присылает клуб</div>`}</div></div>`;
   if (!L.on) return '';
   if (c.welcome) return `<div class="loy gift"><span class="li">🎁</span><div><b>Первый заказ: вернём ${L.welcomePct}% бонусами — +${fmtRub(c.welcome)}</b><div class="tiny muted">Начислим, когда заберёте заказ${L.welcomeCap ? `, не больше ${fmtRub(L.welcomeCap)}` : ''}. Потом в каждом заказе можно оплатить бонусами до ${L.spendPct}% этой суммы — ${fmtRub(Math.floor(c.welcome * L.spendPct / 100))}.</div></div></div>`;
   if (a.wo && !a.credited) return `<div class="loy"><span class="li">⏳</span><div><b>Кэшбэк ${fmtRub(a.welcome)} за заказ №${a.wo.no} ещё не начислен</b><div class="tiny muted">Начислим, когда вы нажмёте «Заказ забрал», — тогда им можно будет оплачивать следующие заказы.</div></div></div>`;
-  if (a.balance > 0) { const on = UI.co.useBonus !== false; return `<button class="loy gift toggle ${on ? 'on' : ''}" data-act="co-bonus"><span class="ck">${on ? '✓' : ''}</span><div><b>Оплатить бонусами −${fmtRub(on ? c.bonus : Math.min(a.perOrder, a.balance, c.sum - 1))}</b><div class="tiny muted">На счёте ${fmtRub(a.balance)} · за один заказ — до ${fmtRub(a.perOrder)} · действуют до ${fmtDate(a.expiresAt)}</div></div></button>`; }
+  if (a.balance > 0) { const on = UI.co.useBonus !== false; return `<button class="loy gift toggle ${on ? 'on' : ''}" data-act="co-bonus"><span class="ck">${on ? '✓' : ''}</span><div><b>Оплатить бонусами −${fmtRub(on ? (c.bonus || c.lockedBonus) : Math.min(a.perOrder, a.balance, c.sum - 1))}</b><div class="tiny muted">На счёте ${fmtRub(a.balance)} · за один заказ — до ${fmtRub(a.perOrder)} · действуют до ${fmtDate(a.expiresAt)}</div></div></button>${on && c.lockedBonus
+    ? `<div class="loy" style="margin-top:-6px"><span class="li">🔒</span><div style="flex:1"><b>Бонусы спишутся после подтверждения номера</b>${otpBlock('Бонусы — это ваши деньги, поэтому тратить их можно только с подтверждённым номером.')}</div></div>` : ''}`; }
   if (a.expired) return `<div class="loy"><span class="li">⌛</span><div><b>Срок бонусов истёк ${fmtDate(a.expiresAt)}</b></div></div>`;
   if (a.wo) return `<div class="loy"><span class="li">✓</span><div class="small muted">Бонусы за первый заказ потрачены полностью.</div></div>`;
   return '';
 }
 function coTotals(c) {
-  return `${c.staffDisc ? `<div class="sum-row"><span class="muted">Скидка: ${esc(c.role.toLowerCase())} клуба</span><span>−${fmtRub(c.staffDisc)}</span></div>` : ''}${c.bonus ? `<div class="sum-row"><span class="muted">Бонусами</span><span>−${fmtRub(c.bonus)}</span></div>` : ''}`;
+  const lock = c.lockedStaff || c.lockedBonus;
+  return `${lock ? `<div class="tiny muted" style="padding-bottom:6px">${c.lockedStaff ? 'Скидка тренера' : 'Оплата бонусами'} −${fmtRub(lock)} применится после подтверждения номера</div>` : ''}${c.staffDisc ? `<div class="sum-row"><span class="muted">Скидка: ${esc(c.role.toLowerCase())} клуба</span><span>−${fmtRub(c.staffDisc)}</span></div>` : ''}${c.bonus ? `<div class="sum-row"><span class="muted">Бонусами</span><span>−${fmtRub(c.bonus)}</span></div>` : ''}`;
 }
 function orderLoyaltyRows(o) {
   let h = '';
@@ -1882,6 +1926,7 @@ function loyaltyView() {
         <div class="row lrow"><span>Срок действия бонусов, дней</span>${num('ttlDays', L.ttlDays)}</div>
         <div class="row lrow"><span>Скидка тренерам и сотрудникам клуба, %</span>${num('staffDiscount', L.staffDiscount)}</div>
         <div class="row lrow"><span>Вознаграждение клубу, % от заказов наверх</span>${num('clubFee', L.clubFee)}</div>
+        <div class="field" style="margin-top:6px"><label class="row" style="gap:8px;cursor:pointer;align-items:flex-start"><input type="checkbox" data-lset="confirmCode" ${L.confirmCode !== false ? 'checked' : ''}> <span>Подтверждать номер звонком перед оплатой бонусами и скидкой тренера<div class="tiny muted">Один раз на устройство. Без этого бонусы и скидку можно получить, просто зная чужой номер.</div></span></label></div>
         <div class="field" style="margin-top:6px"><label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" data-lset="trainerOn" ${L.trainerOn ? 'checked' : ''}> Поле «ID тренера» при заказе</label></div>
         <div class="row lrow"><span>Тренеру по его ID, % от оплаченной суммы заказа</span>${num('trainerPct', L.trainerPct)}</div>
         <div class="tiny muted">Кэшбэк начисляется, когда клиент нажал «Заказ забрал», — отменённый заказ его не даёт. Новые правила действуют для новых заказов. В чеке бонусы — это скидка: цены позиций печатаются уже с её учётом.</div></div>
@@ -2809,9 +2854,11 @@ const ACT = {
     prefillKnown(); if (!UI.co.rcChosen) UI.co.rcTo = UI.co.email.trim() ? 'email' : 'pdf'; render();
   },
   'co-bonus': () => { UI.co.useBonus = UI.co.useBonus === false; render(); },
+  'otp-send': () => otpSend(),
+  'otp-verify': () => otpVerify(),
   profile: () => { UI.otp = null; UI.otpErr = ''; UI.modal = { kind: sessionKey() ? 'profile' : 'login' }; render(); },
   'login-demo': el => { UI.loginPhone = fmtPhone(el.dataset.v); UI.otp = null; render(); },
-  logout: () => { setSession(null); UI.otp = null; if (UI.modal && UI.modal.kind === 'profile') UI.modal = null; UI.co.useBonus = true; render(); },
+  logout: () => { if (sessionKey()) untrustPhone(sessionKey()); setSession(null); UI.otp = null; if (UI.modal && UI.modal.kind === 'profile') UI.modal = null; UI.co.useBonus = true; render(); },
   'st-add': () => {
     const k = normPhone(UI.stPhone); if (!UI.stName.trim() || !k) { toast('Укажите имя и телефон полностью', 'warn'); return; }
     const L = lset(); if (L.staff.some(s => normPhone(s.phone) === k)) { toast('Этот номер уже в списке', 'warn'); return; }
@@ -2965,6 +3012,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('input', e => {
   const t = e.target, ds = t.dataset || {};
+  if (ds.otp === 'code') { t.value = t.value.replace(/\D/g, '').slice(0, 4); UI.otpCode = t.value; if (t.value.length === 4) otpVerify(); return; }
   if (ds.co === 'phone') { UI.co.phone = t.value; const k = coKey(); if (k && isKnownPhone(k)) prefillKnown(); renderSoon(350); return; }
   if (ds.co) {
     if (ds.co === 'num') { const d = t.value.replace(/\D/g, '').slice(0, 19); t.value = d.replace(/(\d{4})(?=\d)/g, '$1 '); }
