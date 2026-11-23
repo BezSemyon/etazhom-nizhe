@@ -508,6 +508,23 @@ body[data-app="poster"] #head{display:none}
 .callsim b{white-space:nowrap;letter-spacing:.3px}
 .callsim .tiny{color:#b9c4bd}
 
+/* ===== Касания: планшеты и телефоны ===== */
+button,.btn,a,[data-act]{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.btn{-webkit-user-select:none;user-select:none}
+.btn:active:not(:disabled){transform:scale(.97)}
+@media (pointer:coarse){ .input,input,select,textarea{font-size:16px} .btn.sm{min-height:40px} }
+/* ===== Кухня на планшете: крупные кнопки ===== */
+body[data-app="kitchen"] [data-act="k-st"]{min-height:52px;padding:0 18px;font-size:16px}
+body[data-app="kitchen"] .tk{padding:14px 14px 12px;border-radius:16px;border-left-width:6px}
+body[data-app="kitchen"] .tk .cd{font-size:24px}
+body[data-app="kitchen"] .tk .who{font-size:17px}
+body[data-app="kitchen"] .tk .tm{font-size:14.5px;margin:4px 0 10px}
+body[data-app="kitchen"] .tk ul{font-size:15px}
+body[data-app="kitchen"] .tk .cm{font-size:15px;font-weight:600}
+body[data-app="kitchen"] .kbtn{min-height:60px;font-size:19px;font-weight:800;border-radius:14px;justify-content:center;width:100%}
+body[data-app="kitchen"] .kbtn.done{background:#e8743b;border-color:#e8743b;color:#fff}
+body[data-app="kitchen"] .kbtn:disabled{opacity:.55}
+
 .site-head,.admin-head{top:var(--dbh,38px)}
 </style>
 </head>
@@ -2326,7 +2343,7 @@ function taskCard(x) {
     <div class="tm">${x.started ? `Готовится с ${fmtTime(x.t.start)} · готово к <b>${fmtTime(x.end)}</b>` : `Старт <b>${fmtTime(x.start)}</b> ${toStart > 0 ? '· через ' + toStart + ' мин' : toStart < -1 ? '· <span class="bad">просрочен на ' + -toStart + ' мин</span>' : '· сейчас'} → готово ${fmtTime(x.end)}`}<br>
       <span class="tiny">${STATION[x.t.st].short} · ${it.drink ? 'стакан' : 'в пакет'} → ${whereLabel(o)} к ${fmtTime(o.readyAt)}${x.late ? ` · <span class="bad">опоздание ${lateBy} мин</span>` : ''}</span></div>
     ${o.comment ? `<div class="cm">💬 ${esc(o.comment)}</div>` : ''}
-    <div class="acts">${x.started ? `<button class="btn sm primary" data-act="t-done" data-id="${o.id}" data-i="${x.ix}">Готово</button>` : `<button class="btn sm ${x.start <= now + MIN ? 'primary' : ''}" data-act="t-start" data-id="${o.id}" data-i="${x.ix}">${x.start <= now + MIN ? 'Начать' : 'Начать раньше'}</button>`}</div></div>`;
+    <div class="acts">${x.started ? `<button class="btn primary kbtn done" data-act="t-done" data-id="${o.id}" data-i="${x.ix}" ${(KDS_HOLD[o.id + ':' + x.ix] || 0) > Date.now() ? 'disabled' : ''}>✓ Готово</button>` : `<button class="btn kbtn ${x.start <= now + MIN ? 'primary' : ''}" data-act="t-start" data-id="${o.id}" data-i="${x.ix}">${x.start <= now + MIN ? '▶ Начать' : 'Начать раньше'}</button>`}</div></div>`;
 }
 function kitchenMain() {
   const p = plan(), now = Date.now(), f = UI.kSt;
@@ -2335,7 +2352,7 @@ function kitchenMain() {
   const later = all.filter(x => !x.started && x.start > now + 45 * MIN).length;
   const packs = kitchenPackList();
   const col = (t, list, hint) => `<div class="col"><h4>${t}<span class="n">${list.length}</span></h4>${list.map(taskCard).join('') || `<div class="tiny muted" style="padding:6px">${hint}</div>`}</div>`;
-  const packCol = `<div class="col"><h4>Упаковка<span class="n">${packs.length}</span></h4>${packs.map(o => `<div class="tk s-packed"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">к ${fmtTime(o.readyAt)}</span></div><div class="tm">Напишите <b>№${o.no}</b> на пакете · ${o.mode === 'cafe' ? 'выдача в кафе' : 'ячейка ' + bagSize(o)}</div><ul>${o.items.filter(i => !i.drink).map(i => `<li><span class="q">${i.q}×</span><span>${i.e} ${esc(i.n)}</span></li>`).join('')}</ul><div class="acts"><button class="btn sm lime" data-act="t-pack" data-id="${o.id}">Упакован, №${o.no} на пакете</button></div></div>`).join('') || '<div class="tiny muted" style="padding:6px">Нечего упаковывать</div>'}</div>`;
+  const packCol = `<div class="col"><h4>Упаковка<span class="n">${packs.length}</span></h4>${packs.map(o => `<div class="tk s-packed"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">к ${fmtTime(o.readyAt)}</span></div><div class="tm">Напишите <b>№${o.no}</b> на пакете · ${o.mode === 'cafe' ? 'выдача в кафе' : 'ячейка ' + bagSize(o)}</div><ul>${o.items.filter(i => !i.drink).map(i => `<li><span class="q">${i.q}×</span><span>${i.e} ${esc(i.n)}</span></li>`).join('')}</ul><div class="acts"><button class="btn lime kbtn" data-act="t-pack" data-id="${o.id}">✓ Упакован, №${o.no} на пакете</button></div></div>`).join('') || '<div class="tiny muted" style="padding:6px">Нечего упаковывать</div>'}</div>`;
   const lateN = Object.values(p).filter(x => x.late).length;
   return `<div class="awrap">
     <div class="ah"><h2>${f === 'all' ? 'Все цеха' : f === 'pack' ? 'Упаковка' : STATION[f].name}</h2><span class="muted">планировщик ставит старт так, чтобы заказ был в точке выдачи к времени клиента; план пересчитывается при каждом событии</span></div>
@@ -2999,11 +3016,18 @@ const ACT = {
     p.status = 'received'; p.receivedAt = Date.now(); saveCatalog(); UI.modal = null; UI.rcv = null; toast('Поставка принята, остатки обновлены', 'ok'); render();
   },
 };
+const KDS_HOLD = {};
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (el.classList.contains('overlay') && e.target !== el) return;
   const fn = ACT[el.dataset.act]; if (!fn) return;
   if (el.tagName === 'A') e.preventDefault();
+  /* кухня на планшете: двойное касание не должно сразу «начать» и «закончить» задачу */
+  if (['t-start', 't-done', 't-pack'].includes(el.dataset.act)) {
+    const key = el.dataset.id + ':' + (el.dataset.i || ''), now = Date.now();
+    if ((KDS_HOLD[key] || 0) > now) return;
+    KDS_HOLD[key] = now + 1500; setTimeout(() => { delete KDS_HOLD[key]; render(); }, 1500);
+  }
   fn(el, e);
 });
 document.addEventListener('keydown', e => {
