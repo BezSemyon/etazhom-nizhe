@@ -194,5 +194,5 @@ const STATIONS = [
   { id: 'bar',  name: 'Бар',          short: 'Бар',      color: '#7b5cc4' },
 ];
 const STATION = Object.fromEntries(STATIONS.map(s => [s.id, s]));
-const LOCKER_SEED = ['A1','A2','A3','A4','B1','B2','B3','B4','C1','C2','C3','C4'].map(id => ({ id, size: id[0] === 'A' ? 'S' : id[0] === 'B' ? 'M' : 'L', state: 'free' }));
+const LOCKER_SEED = ['A', 'B', 'C', 'D'].flatMap(r => [1, 2, 3, 4].map(n => ({ id: r + n, size: 'L', state: 'free' })));   // 16 одинаковых ячеек под пакет с заказом
 const ARTIFACT_URL = 'https://claude.ai/artifact/Eyvb1JZBVaQmyWDWiUTJLe';

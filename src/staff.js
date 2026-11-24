@@ -8,76 +8,59 @@ function staffHead(title, sub, tabs, active, act) {
 const whereLabel = o => o.mode === 'cafe' ? 'кафе' : o.bag.need ? (o.cup.need ? 'ячейка + стойка' : 'ячейка') : 'стойка ресепшена';
 const mm = ms => Math.round(ms / MIN);
 
-/* ===== Кухня ===== */
-function kitchenTabs() {
-  const p = plan(), now = Date.now();
-  const due = st => Object.values(p).filter(x => !x.started && x.start <= now + MIN && (st === 'all' || x.t.st === st)).length;
-  const packN = kitchenPackList().length;
-  return [['all', 'Все цеха', due('all')], ...STATIONS.map(s => [s.id, s.name, due(s.id)]), ['pack', 'Упаковка', packN]];
+/* ===== Касса РестАрт (имитация) =====
+   В жизни кассир работает в РестАрт: заказ с сайта приходит туда сам (тип «Сайт», оплата «Оплачено на сайте» —
+   нефискальная, чек уже пробила облачная касса сайта). Кассир печатает бегунок и несёт на кухню. */
+const raOrders = () => Object.values(S.orders).filter(o => o.ra && sameDay(o.ra.at || o.createdAt, Date.now())).sort((a, b) => (a.cookStart || a.readyAt) - (b.cookStart || b.readyAt));
+function cashierHead() {
+  const n = raOrders().filter(o => o.status === 'paid' && !o.ra.printed).length;
+  return staffHead('Касса · РестАрт', 'имитация: заказы с сайта приходят в кассу кафе', [['new', 'Новые', n], ['all', 'Все за день', 0]], UI.caTab, 'ca-tab');
 }
-function kitchenPackList() { return Object.values(S.orders).filter(o => o.tasks && (o.status === 'cooking' || o.status === 'paid') && o.pack.need && !o.pack.done && o.tasks.filter(t => !o.items[t.i].drink).every(t => t.done)); }
-function kitchenHead() { return staffHead('Кухня', 'задачи от планировщика', kitchenTabs(), UI.kSt, 'k-st'); }
-function ganttSVG(p) {
-  const now = Date.now(), from = now - 10 * MIN, to = now + 60 * MIN, W = 1000, L = 110, R = 10, rowH = 26, top = 24;
-  const rows = []; STATIONS.forEach(s => { for (let i = 0; i < (st().stations[s.id] || 1); i++) rows.push({ s, i }); });
-  const H = top + rows.length * rowH + 8, X = t => L + (Math.max(from, Math.min(to, t)) - from) / (to - from) * (W - L - R);
-  let g = '';
-  for (let m = 0; m <= 70; m += 10) { const t = from + m * MIN, x = X(t); g += `<line x1="${x}" x2="${x}" y1="${top - 4}" y2="${H - 6}" stroke="#ece8df"/><text x="${x}" y="14" font-size="11" text-anchor="middle" fill="#7a817c">${fmtTime(t)}</text>`; }
-  rows.forEach((r, k) => { const y = top + k * rowH; g += `<rect x="0" y="${y}" width="${W}" height="${rowH}" fill="${k % 2 ? '#fbfaf7' : '#fff'}"/><text x="8" y="${y + 17}" font-size="12" font-weight="700" fill="${r.s.color}">${r.s.short}${(st().stations[r.s.id] || 1) > 1 ? ' ' + (r.i + 1) : ''}</text>`; });
-  Object.values(p).forEach(x => {
-    const k = rows.findIndex(r => r.s.id === x.t.st && r.i === x.si); if (k < 0 || x.end < from || x.start > to) return;
-    const y = top + k * rowH + 3, x1 = X(x.start), x2 = Math.max(X(x.end), x1 + 3), w = x2 - x1;
-    const fill = x.late ? '#e3463a' : x.started ? '#e8743b' : '#1d6b45', it = x.o.items[x.t.i];
-    const label = `№${x.o.no} ${it.n}`; const chars = Math.floor((w - 6) / 6.3);
-    g += `<g><rect x="${x1}" y="${y}" width="${w}" height="${rowH - 6}" rx="4" fill="${fill}" fill-opacity="${x.started ? 1 : .85}"><title>№${x.o.no} · ${esc(it.n)} ×${it.q} · ${fmtTime(x.start)}–${fmtTime(x.end)}${x.late ? ' · опаздываем' : ''}</title></rect>${chars > 3 ? `<text x="${x1 + 4}" y="${y + 14}" font-size="11" fill="#fff" pointer-events="none">${esc(label.length > chars ? label.slice(0, chars - 1) + '…' : label)}</text>` : ''}</g>`;
-  });
-  g += `<line x1="${X(now)}" x2="${X(now)}" y1="${top - 6}" y2="${H - 4}" stroke="#17201b" stroke-width="2"/><text x="${X(now) + 4}" y="${H - 8}" font-size="11" font-weight="700" fill="#17201b">сейчас</text>`;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Загрузка цехов на час вперёд">${g}</svg>`;
+function runnerText(o) {
+  const where = o.mode === 'cafe' ? 'КАФЕ — полка выдачи' : (o.bag.need ? 'НАВЕРХ — ячейка шкафа' + (o.cup.need ? ' + напиток на стойку' : '') : 'НАВЕРХ — напиток на стойку');
+  const line = '-'.repeat(32);
+  return [`САЙТ №${o.no}        ${fmtTime(o.ra.at)}`, line, `К ${fmtTime(o.readyAt)}   начать не позже ${fmtTime(o.cookStart || o.readyAt)}`, where, line,
+    ...o.items.map(i => `${String(i.q).padStart(2)} × ${i.n}${i.drink ? ' (бар)' : ''}`), line,
+    ...(o.comment ? ['! ' + o.comment, line] : []), `Гость: ${o.name || '—'}`, `ОПЛАЧЕНО НА САЙТЕ: ${fmtRub(paidOf(o))}`, 'Номер на пакете и стакане: №' + o.no].join('\n');
 }
-function taskCard(x) {
-  const now = Date.now(), o = x.o, it = o.items[x.t.i], D = deadlineOf(o);
-  const toStart = mm(x.start - now), lateBy = mm(x.end - D);
-  return `<div class="tk ${x.late ? 'late' : ''} ${x.started ? 's-cooking' : x.start <= now + MIN ? 's-due' : 's-paid'}" style="border-left-color:${x.late ? 'var(--red)' : STATION[x.t.st].color}">
-    <div class="top"><span class="cd">№${o.no}</span><span class="who">${it.e} ${esc(it.n)}</span><span class="spacer"></span><b>×${it.q}</b></div>
-    <div class="tm">${x.started ? `Готовится с ${fmtTime(x.t.start)} · готово к <b>${fmtTime(x.end)}</b>` : `Старт <b>${fmtTime(x.start)}</b> ${toStart > 0 ? '· через ' + toStart + ' мин' : toStart < -1 ? '· <span class="bad">просрочен на ' + -toStart + ' мин</span>' : '· сейчас'} → готово ${fmtTime(x.end)}`}<br>
-      <span class="tiny">${STATION[x.t.st].short} · ${it.drink ? 'стакан' : 'в пакет'} → ${whereLabel(o)} к ${fmtTime(o.readyAt)}${x.late ? ` · <span class="bad">опоздание ${lateBy} мин</span>` : ''}</span></div>
-    ${o.comment ? `<div class="cm">💬 ${esc(o.comment)}</div>` : ''}
-    <div class="acts">${x.started ? `<button class="btn primary kbtn done" data-act="t-done" data-id="${o.id}" data-i="${x.ix}" ${(KDS_HOLD[o.id + ':' + x.ix] || 0) > Date.now() ? 'disabled' : ''}>✓ Готово</button>` : `<button class="btn kbtn ${x.start <= now + MIN ? 'primary' : ''}" data-act="t-start" data-id="${o.id}" data-i="${x.ix}">${x.start <= now + MIN ? '▶ Начать' : 'Начать раньше'}</button>`}</div></div>`;
+function cashierCard(o) {
+  const cancelled = o.status === 'cancelled', printed = !!o.ra.printed, late = !printed && (o.cookStart || o.readyAt) < Date.now() + 5 * MIN;
+  return `<div class="wcard ${cancelled ? 'late' : ''}"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span>
+      ${cancelled ? '<span class="st red">ОТМЕНЁН</span>' : `<span class="st ${late ? 'red' : 'blue'}">к ${fmtTime(o.readyAt)} · начать ${fmtTime(o.cookStart || o.readyAt)}</span>`}</div>
+    <div class="tiny muted" style="margin:4px 0">${whereLabel(o)} · ${o.items.map(i => i.q + '× ' + esc(i.n) + ' <span class="code-token">[' + ((DISH[i.d] && DISH[i.d].rc) || '—') + ']</span>').join(', ')} · оплачено на сайте ${fmtRub(paidOf(o))}</div>
+    ${o.comment ? `<div class="tiny">💬 ${esc(o.comment)}</div>` : ''}
+    ${cancelled ? `<div class="note red" style="margin-top:6px">Клиент отменил заказ${printed ? ' — бегунок уже на кухне: скажите поварам, чтобы не готовили' : ''}.</div>`
+      : printed ? `<div class="row" style="margin-top:6px"><span class="tiny muted">🧾 Бегунок отдан на кухню в ${fmtTime(o.ra.printed)}</span><span class="spacer"></span><button class="btn sm ghost" data-act="ca-runner" data-id="${o.id}">Бегунок</button></div>`
+      : `<button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="ca-runner" data-id="${o.id}">🧾 Напечатать бегунок для кухни</button>`}</div>`;
 }
-function kitchenMain() {
-  const p = plan(), now = Date.now(), f = UI.kSt;
-  const all = Object.values(p).filter(x => f === 'all' || f === 'pack' || x.t.st === f).sort((a, b) => a.start - b.start);
-  const nowL = all.filter(x => !x.started && x.start <= now + MIN), work = all.filter(x => x.started), next = all.filter(x => !x.started && x.start > now + MIN && x.start <= now + 45 * MIN);
-  const laterL = all.filter(x => !x.started && x.start > now + 45 * MIN);
-  const shown = new Set([...nowL, ...work, ...next].map(x => x.o.id));
-  const laterOrders = [...new Map(laterL.filter(x => !shown.has(x.o.id)).map(x => [x.o.id, x])).values()];      // по заказу — самая ранняя задача
-  const packs = kitchenPackList();
-  const col = (t, list, hint) => `<div class="col"><h4>${t}<span class="n">${list.length}</span></h4>${list.map(taskCard).join('') || `<div class="tiny muted" style="padding:6px">${hint}</div>`}</div>`;
-  const packCol = `<div class="col"><h4>Упаковка<span class="n">${packs.length}</span></h4>${packs.map(o => `<div class="tk s-packed"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">к ${fmtTime(o.readyAt)}</span></div><div class="tm">Напишите <b>№${o.no}</b> на пакете · ${o.mode === 'cafe' ? 'выдача в кафе' : 'ячейка ' + bagSize(o)}</div><ul>${o.items.filter(i => !i.drink).map(i => `<li><span class="q">${i.q}×</span><span>${i.e} ${esc(i.n)}</span></li>`).join('')}</ul><div class="acts"><button class="btn lime kbtn" data-act="t-pack" data-id="${o.id}">✓ Упакован, №${o.no} на пакете</button></div></div>`).join('') || '<div class="tiny muted" style="padding:6px">Нечего упаковывать</div>'}</div>`;
-  const lateN = Object.values(p).filter(x => x.late).length;
-  return `<div class="awrap">${S.mode !== 'db' && S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)} Заказы с других устройств здесь не появятся.</div>` : ''}
-    <div class="ah"><h2>${f === 'all' ? 'Все цеха' : f === 'pack' ? 'Упаковка' : STATION[f].name}</h2><span class="muted">планировщик ставит старт так, чтобы заказ был в точке выдачи к времени клиента; план пересчитывается при каждом событии</span></div>
-    <div class="panel"><div class="row"><h3 style="margin:0">Загрузка цехов на час вперёд</h3><span class="spacer"></span><div class="legend"><span><i style="background:#1d6b45"></i>запланировано</span><span><i style="background:#e8743b"></i>готовится</span><span><i style="background:#e3463a"></i>опаздываем</span></div></div>${ganttSVG(p)}
-      ${lateN ? `<div class="note red" style="margin-top:8px">Опаздываем по ${lateN} ${plural(lateN, 'задаче', 'задачам', 'задачам')}: в цехе не хватает мест. Клиентам с опозданием сайт покажет новое время.</div>` : ''}</div>
-    ${f === 'pack' ? `<div class="cols" style="grid-template-columns:1fr">${packCol}</div>` : `<div class="cols">${col('Сейчас', nowL, 'Нечего начинать')}${col('В работе', work, 'Плита свободна')}${col('Далее · 45 мин', next, 'Пусто')}${packCol}</div>`}
-    ${laterOrders.length ? `<div class="panel later"><h3>Позже · ${laterOrders.length} ${plural(laterOrders.length, 'заказ', 'заказа', 'заказов')}</h3><div class="tiny muted" style="margin:-4px 0 8px">Оплачены, но готовить ещё рано — заказ появится в колонке «Сейчас» к своему времени старта.</div>
-      <div class="laterlist">${laterOrders.map(x => `<span class="li"><b>№${x.o.no}</b> ${esc(x.o.items.map(i => i.n).join(', ').slice(0, 60))} · старт ${sameDay(x.start, now) ? '' : 'завтра '}<b>${fmtTime(x.start)}</b></span>`).join('')}</div></div>` : ''}
-  </div>`;
+function cashierMain() {
+  const all = raOrders(), list = UI.caTab === 'new' ? all.filter(o => (o.status === 'paid' && !o.ra.printed) || (o.status === 'cancelled' && o.ra.printed && o.history.cancelled > Date.now() - 60 * MIN)) : all;
+  return `<div class="wwrap">${S.mode !== 'db' && S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)}</div>` : ''}
+    <div class="note" style="margin-bottom:12px">Это имитация экрана РестАрт. В жизни оплаченный заказ с сайта сам появляется в кассе с типом «Сайт» и оплатой «Оплачено на сайте» — без второго фискального чека. Кассир печатает бегунок и несёт на кухню.</div>
+    <div class="wsec"><h3>${UI.caTab === 'new' ? 'Напечатать и отнести на кухню' : 'Заказы с сайта за день'} · ${list.length}</h3>${list.map(cashierCard).join('') || '<div class="muted small">Новых заказов нет. Оформите заказ на сайте клиента — он появится здесь сразу после оплаты.</div>'}</div></div>`;
+}
+function runnerModal(o) {
+  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(420px,100%)">
+    <div class="mh"><h3>Бегунок №${o.no}</h3><button class="x" data-act="close-modal">×</button></div>
+    <div class="mb"><pre class="runner">${esc(runnerText(o))}</pre><div class="tiny muted">В РестАрт бегунок печатается на кухонном принтере (место печати — по цеху блюда).</div></div>
+    <div class="mf"><span class="spacer"></span><button class="btn" data-act="close-modal">Закрыть</button>${o.ra.printed ? '' : `<button class="btn primary" data-act="ca-print" data-id="${o.id}">Напечатан, отнёс на кухню</button>`}</div>
+  </div></div>`;
 }
 
 /* ===== Официант ===== */
 function waiterHead() {
-  const up = Object.values(S.orders).filter(o => o.mode === 'gym' && (o.status === 'ready' || o.status === 'delivering')).length;
-  const cafe = Object.values(S.orders).filter(o => o.mode === 'cafe' && (o.status === 'ready' || o.status === 'placed')).length;
-  return staffHead('Официант', 'доставка наверх и выдача в кафе', [['up', 'Наверх', up], ['cafe', 'Кафе', cafe], ['cells', 'Шкаф', 0]], UI.wTab, 'w-tab');
+  const up = Object.values(S.orders).filter(o => o.mode === 'gym' && (o.status === 'paid' || o.status === 'delivering')).length;
+  const cafe = Object.values(S.orders).filter(o => o.mode === 'cafe' && (o.status === 'paid' || o.status === 'placed')).length;
+  return staffHead('Официант', 'забрать с кухни, отнести наверх, выдать в кафе', [['up', 'Наверх', up], ['cafe', 'Кафе', cafe], ['cells', 'Шкаф', 0]], UI.wTab, 'w-tab');
 }
 function partRow(icon, title, sub, btn) { return `<div class="wpart"><span class="wi">${icon}</span><div style="flex:1"><b>${title}</b><div class="tiny muted">${sub}</div></div>${btn || ''}</div>`; }
 function waiterCard(o) {
   const now = Date.now(), toT = mm(o.readyAt - now);
   let parts = '';
-  if (o.status === 'ready') {
+  if (o.status === 'paid') {
+    parts += raLine(o);
     if (o.cup.need) parts += partRow('🥤', `Подпишите стакан: №${o.no}`, o.items.filter(i => i.drink).map(i => i.q + '× ' + i.n).join(', ') + ' → стойка ресепшена');
-    if (o.bag.need) parts += partRow('📦', `Пакет №${o.no}`, o.items.filter(i => !i.drink).map(i => i.q + '× ' + i.n).join(', ') + ' → ячейка ' + bagSize(o));
+    if (o.bag.need) parts += partRow('📦', `Пакет №${o.no}`, o.items.filter(i => !i.drink).map(i => i.q + '× ' + i.n).join(', ') + ' → ячейка шкафа');
   } else {
     const c = o.bag.cell && S.lockers.cells.find(x => x.id === o.bag.cell);
     if (o.bag.need) {
@@ -90,23 +73,30 @@ function waiterCard(o) {
       : `<div class="wpart wcol"><div class="row"><span class="wi">🥤</span><div style="flex:1"><b>Стакан №${o.no} → стойка ресепшена</b><div class="tiny muted">${o.items.filter(i => i.drink).map(i => i.q + '× ' + i.n).join(', ')} · поставьте на стойку номером к залу</div></div></div><button class="btn primary wbtn" data-act="w-cup" data-id="${o.id}">🥤 Заказ доставлен на стойку</button></div>`;
   }
   return `<div class="wcard ${toT < 0 && o.status !== 'placed' ? 'late' : ''}"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="st ${toT < 0 ? 'red' : 'blue'}">к ${fmtTime(o.readyAt)}${toT >= 0 ? ' · ' + toT + ' мин' : ''}</span></div>${parts}
-    ${o.status === 'ready' ? `<button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-take" data-id="${o.id}">Взять в рейс${o.bag.need ? ' и получить ячейку' : ''}</button>` : ''}</div>`;
+    ${o.status === 'paid' ? `<button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-take" data-id="${o.id}">Забрал с кухни${o.bag.need ? ' — получить ячейку' : ''}</button>` : ''}</div>`;
+}
+/* дошёл ли заказ до кассы и напечатан ли бегунок */
+function raLine(o) {
+  if (!o.ra) return '';
+  return `<div class="tiny muted" style="margin:4px 0">${o.ra.printed ? `✓ В РестАрт · бегунок на кухне с ${fmtTime(o.ra.printed)}` : '⏳ В РестАрт · кассир ещё не напечатал бегунок'} · начать не позже ${fmtTime(o.cookStart || o.readyAt)}</div>`;
 }
 function waiterMain() {
   const now = Date.now(), all = ordersList();
   let h = '';
   if (UI.wTab === 'up') {
-    const ready = all.filter(o => o.mode === 'gym' && o.status === 'ready'), trip = all.filter(o => o.mode === 'gym' && o.status === 'delivering');
-    const soon = all.filter(o => o.mode === 'gym' && (o.status === 'paid' || o.status === 'cooking') && o.readyAt - now < 40 * MIN);
+    const kitchen = all.filter(o => o.mode === 'gym' && o.status === 'paid'), trip = all.filter(o => o.mode === 'gym' && o.status === 'delivering');
+    const ready = kitchen.filter(o => o.readyAt - now < 15 * MIN), soon = kitchen.filter(o => o.readyAt - now >= 15 * MIN);
+    const gone = all.filter(o => o.status === 'cancelled' && o.ra && o.ra.printed && o.history.cancelled > now - 60 * MIN);
+    h += gone.map(o => `<div class="note red" style="margin-bottom:10px">⚠️ <b>№${o.no}</b> (${esc(o.name)}) отменён клиентом — отмена ушла в РестАрт. Предупредите кухню, чтобы не готовили.</div>`).join('');
     const doneToday = all.filter(o => o.mode === 'gym' && ['placed', 'done'].includes(o.status) && sameDay(o.readyAt, now)).reverse().slice(0, 6);
     h += `<div class="wsec"><div class="row"><h3>В рейсе · ${trip.length}</h3></div>${trip.map(waiterCard).join('') || '<div class="muted small">Сейчас ничего не несёте.</div>'}</div>`;
-    h += `<div class="wsec"><div class="row"><h3>Готовы к выносу · ${ready.length}</h3><span class="spacer"></span>${ready.length > 1 ? `<button class="btn sm lime" data-act="w-takeall">Взять все в рейс</button>` : ''}</div>${ready.map(waiterCard).join('') || '<div class="muted small">Пока нечего нести.</div>'}</div>`;
-    h += `<div class="wsec"><h3>Скоро будут готовы</h3>${soon.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${whereLabel(o)} · к ${fmtTime(o.readyAt)}</div></div><span class="st ${STATUS[o.status].color}">${STATUS[o.status].short}</span></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
+    h += `<div class="wsec"><h3>Пора забирать с кухни · ${ready.length}</h3><div class="tiny muted" style="margin-bottom:8px">Кухня готовит по бегунку из РестАрт к этому времени. Забрали пакет — нажмите «Забрал с кухни».</div>${ready.map(waiterCard).join('') || '<div class="muted small">Пока нечего нести.</div>'}</div>`;
+    h += `<div class="wsec"><h3>Готовятся позже</h3>${soon.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${whereLabel(o)} · к ${fmtTime(o.readyAt)}</div></div><button class="btn sm" data-act="w-take" data-id="${o.id}" title="Кухня отдала раньше времени">Забрал</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
     h += `<div class="wsec"><h3>Доставлено сегодня</h3>${doneToday.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${[o.bag.need ? 'ячейка ' + o.bag.cell + (o.bag.pickedAt ? ' — забран' : ' — ждёт') : '', o.cup.need ? 'стойка' + (o.cup.pickedAt ? ' — забран' : ' — ждёт') : ''].filter(Boolean).join(' · ')}</div></div></div>`).join('') || '<div class="muted small">Пока нет</div>'}</div>`;
   } else if (UI.wTab === 'cafe') {
-    const ready = all.filter(o => o.mode === 'cafe' && o.status === 'ready'), shelf = all.filter(o => o.mode === 'cafe' && o.status === 'placed');
+    const ready = all.filter(o => o.mode === 'cafe' && o.status === 'paid'), shelf = all.filter(o => o.mode === 'cafe' && o.status === 'placed');
     const q = UI.cafeNo.trim();
-    h += `<div class="wsec"><h3>Готовы — поставить на полку выдачи · ${ready.length}</h3>${ready.map(o => `<div class="wcard"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="st blue">к ${fmtTime(o.readyAt)}</span></div><div class="tiny muted">${o.items.map(i => i.q + '× ' + i.n).join(', ')}</div><button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-shelf" data-id="${o.id}">Поставил на полку, номер подписан</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
+    h += `<div class="wsec"><h3>На кухне — поставить на полку выдачи · ${ready.length}</h3>${ready.map(o => `<div class="wcard"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="st blue">к ${fmtTime(o.readyAt)}</span></div>${raLine(o)}<div class="tiny muted">${o.items.map(i => i.q + '× ' + i.n).join(', ')}</div><button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-shelf" data-id="${o.id}">Поставил на полку, номер подписан</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
     h += `<div class="wsec"><h3>На полке · ${shelf.length}</h3><input class="input" style="width:100%;margin-bottom:10px" data-ui="cafeNo" data-fk="cafeNo" placeholder="Номер, который назвал клиент" inputmode="numeric" value="${esc(q)}">
       ${shelf.map(o => `<div class="wcard ${q && o.no === q ? 'hl' : ''}"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">на полке ${mm(now - (o.shelfAt || now))} мин</span></div><button class="btn ${q && o.no === q ? 'primary' : ''}" style="width:100%;justify-content:center;margin-top:8px" data-act="w-hand" data-id="${o.id}">${q && o.no === q ? 'Номер совпал — выдать' : 'Выдать'}</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
   } else h += `<div class="wsec"><h3>Ячейки шкафа</h3>${lockerGrid(false)}<div class="tiny muted" style="margin-top:10px">Ячейка освобождается, когда клиент нажимает «Заказ забрал». «Освободить» — на случай, если клиент забрал пакет и ушёл, не нажав кнопку.</div></div>`;
@@ -119,7 +109,7 @@ function lockerGrid(big) {
   return `<div class="cells ${big ? 'big' : ''}">${S.lockers.cells.map(c => {
     const exp = c.state === 'reserved' && c.depExp < now;
     const lbl = c.state === 'free' || exp ? 'свободна' : c.state === 'reserved' ? `бронь №${c.no}` : c.state === 'occupied' ? `№${c.no} · ${mm(now - (c.since || now))} мин` : 'ОТКРЫТА';
-    return `<div class="cell s-${exp ? 'free' : c.state}"><div class="row"><b>${c.id}</b><span class="tiny muted">${c.size}</span></div><div class="cl">${lbl}</div>${c.state === 'open' && big ? '<div class="tiny muted">' + (c.openFor === 'deposit' ? 'официант кладёт пакет №' + c.no + ' — ждём отметки «Заказ доставлен в ячейку»' : 'клиент забирает №' + c.no + ' — ячейка освободится, когда он нажмёт «Заказ забрал»') + '</div>' : ''}${!big && (c.state === 'occupied' || (c.state === 'open' && c.openFor === 'pickup')) ? `<button class="btn sm rel" data-act="w-release" data-id="${c.id}" title="Если клиент забрал пакет, но не нажал «Заказ забрал»">Освободить</button>` : ''}</div>`;
+    return `<div class="cell s-${exp ? 'free' : c.state}"><div class="row"><b>${c.id}</b></div><div class="cl">${lbl}</div>${c.state === 'open' && big ? '<div class="tiny muted">' + (c.openFor === 'deposit' ? 'официант кладёт пакет №' + c.no + ' — ждём отметки «Заказ доставлен в ячейку»' : 'клиент забирает №' + c.no + ' — ячейка освободится, когда он нажмёт «Заказ забрал»') + '</div>' : ''}${!big && (c.state === 'occupied' || (c.state === 'open' && c.openFor === 'pickup')) ? `<button class="btn sm rel" data-act="w-release" data-id="${c.id}" title="Если клиент забрал пакет, но не нажал «Заказ забрал»">Освободить</button>` : ''}</div>`;
   }).join('')}</div>`;
 }
 function lockerMain() {
@@ -127,7 +117,7 @@ function lockerMain() {
   const depToks = S.lockers.cells.filter(c => c.state === 'reserved' && c.depTok && c.depExp > now);
   const pickToks = Object.values(S.orders).filter(o => o.bag.need && o.bag.depositedAt && !o.bag.pickedAt && o.mode === 'gym');
   const m = UI.lockMsg;
-  return `<div class="awrap"><div class="ah"><h2>Шкаф с ячейками</h2><span class="muted">табло со сканером QR и 12 ячеек. Камера в прототипе недоступна — «подносите» телефоны кнопками ниже</span></div>
+  return `<div class="awrap"><div class="ah"><h2>Шкаф с ячейками</h2><span class="muted">табло со сканером QR и 16 одинаковых ячеек. Камера в прототипе недоступна — «подносите» телефоны кнопками ниже</span></div>
     <div class="locker">
       <div class="screen"><div class="scr ${m ? (m.ok ? 'ok' : 'bad') : ''}">${m ? `<div class="big">${m.ok ? '🔓' : '⛔'}</div><div>${esc(m.msg)}</div>` : '<div class="big">⌁</div><div>Поднесите QR-код к сканеру</div><div class="tiny" style="opacity:.7;margin-top:6px">Этажом ниже · выдача заказов</div>'}</div>
         <div class="sim"><div class="tiny muted" style="margin-bottom:6px">Имитация: какой телефон поднесли</div>

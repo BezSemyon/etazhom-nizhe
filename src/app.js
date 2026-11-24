@@ -1,10 +1,11 @@
 /* ===== Приложения и маршруты ===== */
-const APPS = [['client', 'Клиент', 'menu'], ['kitchen', 'Кухня', 'kitchen'], ['waiter', 'Официант', 'waiter'], ['locker', 'Шкаф', 'locker'], ['manager', 'Управляющий', 'admin-menu'], ['poster', 'QR в зале', 'poster']];
-const MANAGER_VIEWS = ['admin-menu', 'stock', 'purchasing', 'receipts', 'loyalty', 'dashboard', 'settings'];
+const APPS = [['client', 'Клиент', 'menu'], ['cashier', 'Касса РестАрт', 'cashier'], ['waiter', 'Официант', 'waiter'], ['locker', 'Шкаф', 'locker'], ['manager', 'Управляющий', 'admin-menu'], ['poster', 'QR в зале', 'poster']];
+const MANAGER_VIEWS = ['admin-menu', 'restart', 'receipts', 'loyalty', 'dashboard', 'settings'];
 function readHash() {
   const h = location.hash.slice(1);
   if (MANAGER_VIEWS.includes(h)) { UI.app = 'manager'; UI.view = h; UI.mView = h; }
-  else if (['kitchen', 'waiter', 'locker', 'poster'].includes(h)) { UI.app = h; UI.view = h; }
+  else if (['cashier', 'waiter', 'locker', 'poster'].includes(h)) { UI.app = h; UI.view = h; }
+  else if (h === 'kitchen') { UI.app = 'cashier'; UI.view = 'cashier'; }      // старые ссылки на кухню
   else { UI.app = 'client'; UI.view = 'menu'; }
 }
 window.addEventListener('hashchange', () => { readHash(); UI.modal = null; UI.drawer = null; UI.lockMsg = null; render(); window.scrollTo(0, 0); });
@@ -34,8 +35,7 @@ function layerHTML() {
     else if (m.kind === 'profile' && sessionKey()) h += profileModal();
     else if (m.kind === 'receipt' && S.orders[m.id]) { const o = S.orders[m.id], r = (o.receipts || []).find(x => x.id === m.r); if (r) h += receiptModal(o, r, m.back); }
     else if (m.kind === 'edit' && UI.editDish) h += editDishModal();
-    else if (m.kind === 'op') h += opModal();
-    else if (m.kind === 'receive') { const p = S.catalog.pos.find(x => x.id === m.id); if (p) h += receiveModal(p); }
+    else if (m.kind === 'runner' && S.orders[m.id]) h += runnerModal(S.orders[m.id]);
   }
   if (fresh) h = h.replace(/class="overlay"/g, 'class="overlay anim"').replace(/class="drawer"/g, 'class="drawer anim"');
   return h;
@@ -49,7 +49,7 @@ function render() {
   document.body.dataset.app = UI.app;
   $('#demobar').innerHTML = demobarHTML();
   const A = {
-    client: [clientHead, clientMain], kitchen: [kitchenHead, kitchenMain], waiter: [waiterHead, waiterMain],
+    client: [clientHead, clientMain], cashier: [cashierHead, cashierMain], waiter: [waiterHead, waiterMain],
     locker: [() => staffHead('Табло шкафа', 'ячейки у ресепшена клуба'), lockerMain], manager: [adminHead, adminMain], poster: [() => '', posterMain],
   }[UI.app];
   $('#head').innerHTML = A[0](); $('#main').innerHTML = A[1]();
@@ -163,14 +163,12 @@ const ACT = {
   'cancel-order': el => { if (cancelOrder(el.dataset.id)) toast('Заказ отменён: Форабанк вернёт деньги на карту или счёт, чек возврата придёт на email или SMS', 'ok', 5000); else toast('Заказ уже готовится — отменить нельзя', 'warn'); render(); },
   'client-scan': el => { const o = byId(el.dataset.id); if (!o) return; const r = lockerScan(o.pickTok); UI.lockMsg = r; toast(r.msg, r.ok ? 'ok' : 'warn', 5000); render(); },
 
-  'k-st': el => { UI.kSt = el.dataset.v; render(); },
-  't-start': el => { taskStart(el.dataset.id, +el.dataset.i); render(); },
-  't-done': el => { taskDone(el.dataset.id, +el.dataset.i); const o = byId(el.dataset.id); if (o && o.status === 'ready') toast(`№${o.no} готов — передан официанту`, 'ok'); render(); },
-  't-pack': el => { packDone(el.dataset.id); const o = byId(el.dataset.id); if (o && o.status === 'ready') toast(`№${o.no} упакован — передан официанту`, 'ok'); render(); },
+  'ca-tab': el => { UI.caTab = el.dataset.v; render(); },
+  'ca-runner': el => { UI.modal = { kind: 'runner', id: el.dataset.id }; render(); },
+  'ca-print': el => { raPrinted(el.dataset.id); const o = byId(el.dataset.id); UI.modal = null; if (o) toast(`Бегунок №${o.no} отнесён на кухню`, 'ok'); render(); },
 
   'w-tab': el => { UI.wTab = el.dataset.v; render(); },
   'w-take': el => { const c = takeOrder(el.dataset.id); const o = byId(el.dataset.id); if (o && o.status === 'delivering') toast(c ? `№${o.no}: ячейка ${c.id}, QR на экране` : `№${o.no} в рейсе`, 'ok'); render(); },
-  'w-takeall': () => { ordersList().filter(o => o.mode === 'gym' && o.status === 'ready').forEach(o => takeOrder(o.id)); toast('Все готовые заказы в рейсе', 'ok'); render(); },
   'w-cell': el => { allocateCell(el.dataset.id); render(); },
   'w-scan': el => { const c = S.lockers.cells.find(x => x.id === el.dataset.id); if (!c) return; const r = lockerScan(c.depTok); UI.lockMsg = r; toast(r.msg, r.ok ? 'ok' : 'warn', 5000); render(); },
   'w-cup': el => { cupPlaced(el.dataset.id); const o = byId(el.dataset.id); toast(`№${o.no}: заказ доставлен на стойку — клиент видит, что стакан ждёт его`, 'ok'); render(); },
@@ -196,67 +194,23 @@ const ACT = {
   'm-hit': el => { const d = DISH[el.dataset.id]; d.hit = !d.hit; saveCatalog(); toast(d.hit ? '«' + d.name + '» — хит дня' : 'Убрано из хитов'); render(); },
   'm-stop': el => { const d = DISH[el.dataset.id]; d.stop = !d.stop; saveCatalog(); render(); },
   'm-apply-sale': el => { const d = DISH[el.dataset.id]; d.discount = +el.dataset.v; saveCatalog(); toast('Скидка ' + d.discount + '% на «' + d.name + '» уже на сайте', 'ok'); render(); },
-  'm-new': () => { UI.editDish = { id: uid('d'), name: '', type: 'hot', station: 'hot', goals: [], price: 400, weight: '300 г', kcal: 400, p: 30, f: 12, c: 40, cook: 12, emoji: '🍽️', pop: 3, desc: '', serves: 1, recipe: [{ ing: 'chicken', qty: 150 }], hit: false, discount: 0, stop: false }; UI.modal = { kind: 'edit' }; render(); },
+  'm-new': () => { UI.editDish = { id: uid('d'), name: '', type: 'hot', station: 'hot', goals: [], price: 400, weight: '300 г', kcal: 400, p: 30, f: 12, c: 40, cook: 12, emoji: '🍽️', pop: 3, desc: '', serves: 1, recipe: [], rc: '', hit: false, discount: 0, stop: false }; UI.modal = { kind: 'edit' }; render(); },
   'm-edit': el => { UI.editDish = clone(DISH[el.dataset.id]); UI.modal = { kind: 'edit' }; render(); },
   'ed-goal': el => { const g = el.dataset.v, a = UI.editDish.goals; UI.editDish.goals = a.includes(g) ? a.filter(x => x !== g) : a.concat(g); render(); },
-  'ed-addrow': () => { UI.editDish.recipe.push({ ing: S.catalog.ingredients[0].id, qty: 100 }); render(); },
-  'ed-delrow': el => { UI.editDish.recipe.splice(+el.dataset.i, 1); render(); },
   'ed-save': () => {
     const d = UI.editDish; if (!d.name.trim()) { toast('Укажите название', 'warn'); return; }
     ['price', 'kcal', 'p', 'f', 'c', 'cook', 'serves'].forEach(k => { d[k] = +d[k] || 0; }); d.serves = d.serves || 1; d.cook = Math.max(1, d.cook);
-    d.recipe = d.recipe.filter(r => r.qty > 0);
+    d.rc = String(d.rc || '').trim();
     const ix = S.catalog.dishes.findIndex(x => x.id === d.id); if (ix >= 0) S.catalog.dishes[ix] = d; else S.catalog.dishes.push(d);
     saveCatalog(); UI.modal = null; UI.editDish = null; toast('Блюдо сохранено и уже на сайте', 'ok'); render();
   },
   'ed-delete': () => { if (!UI.confirmDel) { UI.confirmDel = true; render(); return; } S.catalog.dishes = S.catalog.dishes.filter(x => x.id !== UI.editDish.id); saveCatalog(); UI.modal = null; UI.editDish = null; UI.confirmDel = false; toast('Блюдо удалено'); render(); },
-  op: el => { UI.modal = { kind: 'op', type: el.dataset.v, ing: el.dataset.ing || S.catalog.ingredients[0].id, dish: S.catalog.dishes[0].id, qty: el.dataset.v === 'hall' ? 1 : null, note: '' }; render(); },
-  'op-save': () => {
-    const m = UI.modal, i = ING[m.ing];
-    if (m.type === 'hall') { const d = DISH[m.dish], q = +m.qty || 0; if (!d || q <= 0) return; writeOffItems([{ d: d.id, q }], 'hall', 'Зал: ' + d.name + ' × ' + q); saveCatalog(); toast('Списано по техкарте: ' + d.name + ' × ' + q, 'ok'); }
-    else {
-      const q = +m.qty; if (!i || m.qty === '' || m.qty == null || !(q >= 0)) { toast('Укажите количество', 'warn'); return; }
-      if (m.type === 'in') { i.stock += q; addMove(i.id, q, 'in', m.note || 'Приход'); }
-      if (m.type === 'waste') { const w = Math.min(q, i.stock); i.stock -= w; addMove(i.id, -w, 'waste', m.note || 'Списание'); }
-      if (m.type === 'inv') { const diff = q - i.stock; i.stock = q; addMove(i.id, diff, 'inv', m.note || (diff >= 0 ? 'Излишек' : 'Недостача')); }
-      saveCatalog(); toast('Проведено: ' + i.name, 'ok');
-    }
-    UI.modal = null; render();
-  },
-  'p-promo': () => { S.catalog.settings.promo = !S.catalog.settings.promo; saveCatalog(); render(); },
-  'p-all': () => { UI.pAll = !UI.pAll; render(); },
-  'p-generate': () => {
-    const groups = {};
-    S.catalog.ingredients.forEach(i => { const r = planRow(i, UI.pChoice[i.id] || defaultSupplier(i)); if (r.qty > 0) (groups[r.sup.id] = groups[r.sup.id] || { next: r.next, items: [] }).items.push([i.id, r.qty]); });
-    const n = Object.keys(groups).length;
-    Object.entries(groups).forEach(([sid, g]) => S.catalog.pos.unshift(makePO(S.catalog, sid, 'draft', g.next, g.items)));
-    saveCatalog(); toast('Создано заявок: ' + n + '. Проверьте и отправьте поставщикам.', 'ok'); render();
-  },
-  'po-send': el => {
-    const p = S.catalog.pos.find(x => x.id === el.dataset.id); if (!p) return; const s = SUP[p.supplierId];
-    const text = `Заявка от кафе «Этажом ниже»\nПоставщик: ${s.name}\nДата поставки: ${fmtDate(p.deliveryDate)}\n\n` + p.items.map(it => `• ${ING[it.ing].name} — ${fmtQty(it.qty, ING[it.ing].unit)}`).join('\n') + `\n\nИтого ≈ ${fmtRub(p.total)}`;
-    try { navigator.clipboard.writeText(text).then(() => toast('Текст заявки скопирован — вставьте в письмо или мессенджер'), () => { }); } catch (e) { }
-    p.status = 'sent'; p.sentAt = Date.now(); saveCatalog(); toast('Заявка отправлена: ' + s.name, 'ok'); render();
-  },
-  'po-del': el => { S.catalog.pos = S.catalog.pos.filter(x => x.id !== el.dataset.id); saveCatalog(); render(); },
-  'po-recv': el => { UI.modal = { kind: 'receive', id: el.dataset.id }; UI.rcv = null; render(); },
-  'po-recv-ok': el => {
-    const p = S.catalog.pos.find(x => x.id === el.dataset.id); if (!p) return;
-    p.items.forEach((it, ix) => { const q = UI.rcv && UI.rcv[ix] != null ? +UI.rcv[ix] : it.qty; const i = ING[it.ing]; if (!i || !(q > 0)) return; i.stock += q; addMove(i.id, q, 'in', 'Приёмка: ' + SUP[p.supplierId].name); it.got = q; });
-    p.status = 'received'; p.receivedAt = Date.now(); saveCatalog(); UI.modal = null; UI.rcv = null; toast('Поставка принята, остатки обновлены', 'ok'); render();
-  },
 };
-const KDS_HOLD = {};
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (el.classList.contains('overlay') && e.target !== el) return;
   const fn = ACT[el.dataset.act]; if (!fn) return;
   if (el.tagName === 'A') e.preventDefault();
-  /* кухня на планшете: двойное касание не должно сразу «начать» и «закончить» задачу */
-  if (['t-start', 't-done', 't-pack'].includes(el.dataset.act)) {
-    const key = el.dataset.id + ':' + (el.dataset.i || ''), now = Date.now();
-    if ((KDS_HOLD[key] || 0) > now) return;
-    KDS_HOLD[key] = now + 1500; setTimeout(() => { delete KDS_HOLD[key]; render(); }, 1500);
-  }
   fn(el, e);
 });
 document.addEventListener('keydown', e => {
@@ -279,9 +233,6 @@ document.addEventListener('input', e => {
   if (ds.f === 'q') { UI.q = t.value; renderSoon(160); return; }
   if (ds.ui) { UI[ds.ui] = t.value; if (ds.ui !== 'lockIn') renderSoon(160); return; }
   if (ds.ed) { UI.editDish[ds.ed] = t.value; return; }
-  if (ds.edr) { const r = UI.editDish.recipe[+ds.i]; if (r) r[ds.edr] = ds.edr === 'qty' ? +t.value : t.value; return; }
-  if (ds.op) { UI.modal[ds.op] = t.value; return; }
-  if (ds.rcv != null) { UI.rcv = UI.rcv || {}; UI.rcv[+ds.rcv] = t.value; return; }
   if (ds.set) { S.catalog.settings[ds.set] = +t.value; _cache = {}; renderSoon(80); return; }
 });
 document.addEventListener('change', e => {
@@ -293,18 +244,17 @@ document.addEventListener('change', e => {
   if (ds.set) { S.catalog.settings[ds.set] = +t.value; saveCatalog(); render(); return; }
   if (ds.lset) { const L = lset(); L[ds.lset] = t.type === 'checkbox' ? t.checked : Math.max(0, +t.value || 0); saveCatalog(); toast('Правила программы сохранены — действуют для новых заказов', 'ok'); render(); return; }
   if (ds.fset) { const f = fset(), num = ['cardFee', 'sbpFee', 'feeVat'].includes(ds.fset); f[ds.fset] = t.type === 'checkbox' ? t.checked : num ? Math.max(0, +String(t.value).replace(',', '.') || 0) : t.value; saveCatalog(); toast('Настройки кассы сохранены — действуют для новых заказов', 'ok'); render(); return; }
-  if (ds.setp) { const [a, b] = ds.setp.split('.'); const v = Math.max(0, +t.value || 0); if (b) S.catalog.settings[a][b] = a === 'stations' ? Math.max(1, v) : v; else S.catalog.settings[a] = v; saveCatalog(); toast('Планировщик пересчитал задачи'); render(); return; }
-  if (ds.pchoice != null) { UI.pChoice[ds.id] = t.value; render(); return; }
+  if (ds.setp) { const [a, b] = ds.setp.split('.'); const v = Math.max(0, +t.value || 0); if (b) S.catalog.settings[a][b] = a === 'stations' ? Math.max(1, v) : v; else S.catalog.settings[a] = v; saveCatalog(); toast('Ближайшее время на сайте пересчитано'); render(); return; }
+  if (ds.rc != null) { const d = DISH[ds.id]; if (!d) return; d.rc = t.value.trim(); saveCatalog(); toast(d.rc ? `Код РестАрт для «${d.name}»: ${d.rc}` : `У «${d.name}» нет кода РестАрт`, d.rc ? 'ok' : 'warn'); render(); return; }
   if (ds.ed) { UI.editDish[ds.ed] = t.value; if (['type', 'price', 'station'].includes(ds.ed)) render(); return; }
-  if (ds.edr) { const r = UI.editDish.recipe[+ds.i]; if (r) r[ds.edr] = ds.edr === 'qty' ? +t.value : t.value; render(); return; }
-  if (ds.op) { UI.modal[ds.op] = t.value; if (ds.op === 'ing' || ds.op === 'dish') render(); return; }
 });
 function onOrdersChanged(before) {
   notifyMyOrders(before);
   Object.values(S.orders).forEach(o => {
     const b = before[o.id];
-    if (!b && o.status === 'paid' && UI.app === 'kitchen') toast(`Новый заказ №${o.no} · к ${fmtTime(o.readyAt)} · планировщик поставил задачи`, 'ok', 6000);
-    if (b && b.status !== 'ready' && o.status === 'ready' && UI.app === 'waiter') toast(`№${o.no} готов к выносу (${whereLabel(o)})`, 'ok', 6000);
+    if (!b && o.status === 'paid' && UI.app === 'cashier') toast(`Новый заказ с сайта №${o.no} · к ${fmtTime(o.readyAt)} — напечатайте бегунок`, 'ok', 6000);
+    if (!b && o.status === 'paid' && UI.app === 'waiter') toast(`Новый заказ №${o.no} · к ${fmtTime(o.readyAt)} (${whereLabel(o)})`, 'ok', 6000);
+    if (b && b.status === 'paid' && o.status === 'cancelled' && ['cashier', 'waiter'].includes(UI.app)) toast(`№${o.no} отменён клиентом — не готовить`, 'warn', 8000);
   });
 }
 

@@ -3,7 +3,7 @@ const UI = {
   app: 'client', view: 'menu', goal: 'all', type: 'all', q: '', sort: 'pop',
   cart: {}, drawer: null, modal: null, lastOrder: null, payErr: '',
   co: { mode: 'gym', when: 'asap', time: '', name: '', phone: '', email: '', card: '', comment: '', trainer: '', rcTo: 'pdf', rcChosen: false, no: '', pay: null, bank: null, num: '2200 1234 5678 9019', exp: '12/28', cvc: '123' },
-  sub: 'all', kSt: 'all', wTab: 'up', lockMsg: null, pickConfirm: null, loginPhone: '', otp: null, otpCode: '', otpErr: '', stName: '', stPhone: '', stRole: 'Тренер', lockIn: '', cafeNo: '',
+  sub: 'all', caTab: 'new', wTab: 'up', lockMsg: null, pickConfirm: null, loginPhone: '', otp: null, otpCode: '', otpErr: '', stName: '', stPhone: '', stRole: 'Тренер', lockIn: '', cafeNo: '',
   mq: '', mGoal: 'all', mType: 'all', sq: '', sCat: 'all', sStatus: 'all', pAll: false, pChoice: {}, editDish: null, mView: 'admin-menu',
 };
 const ICON = {
@@ -17,10 +17,10 @@ const ICON = {
 const cartCount = () => Object.values(UI.cart).reduce((s, q) => s + q, 0);
 const cartSum = () => Object.entries(UI.cart).reduce((s, [id, q]) => s + (DISH[id] ? effPrice(DISH[id]) * q : 0), 0);
 const cartFull = () => Object.entries(UI.cart).reduce((s, [id, q]) => s + (DISH[id] ? DISH[id].price * q : 0), 0);
-function canAddMore(d) { return !d.stop && portions(d, needFor(UI.cart)) >= 1; }
+function canAddMore(d) { return !d.stop && (UI.cart[d.id] || 0) < 20; }
 function cartAdd(id, n = 1) {
   const d = DISH[id]; if (!d) return;
-  if (n > 0 && !canAddMore(d)) { toast('Больше нет в наличии: ' + d.name, 'warn'); return; }
+  if (n > 0 && !canAddMore(d)) { toast(d.stop ? 'Сейчас нет в наличии: ' + d.name : 'Не больше 20 порций одного блюда', 'warn'); return; }
   const q = (UI.cart[id] || 0) + n; if (q <= 0) delete UI.cart[id]; else UI.cart[id] = q; render();
 }
 /* мои заказы — только сделанные с этого устройства: номер телефона без кода не доказывает, что это вы,
@@ -44,7 +44,7 @@ function drinkGroups(ds) {
 }
 const goalColor = d => (GOAL[d.goals[0]] || { color: '#8a9a90' }).color;
 function dishCard(d) {
-  const left = portions(d), inCart = UI.cart[d.id] || 0, sold = (d.stop || left === 0) && !inCart, price = effPrice(d);
+  const inCart = UI.cart[d.id] || 0, sold = d.stop && !inCart, price = effPrice(d);
   const btn = inCart
     ? `<div class="stepper"><button data-act="minus" data-id="${d.id}" aria-label="Убрать">−</button><span>${inCart}</span><button data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'} aria-label="Добавить">+</button></div>`
     : `<button class="add" data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'} aria-label="В корзину">+</button>`;
@@ -55,7 +55,7 @@ function dishCard(d) {
     <div class="body"><div class="nm">${esc(d.name)}</div>
       <div class="meta">${esc(d.weight)}${d.serves > 1 ? ' · на ' + d.serves + ' перс.' : ''} · ${d.cook} мин</div>
       <div class="macros"><span><b>Б</b>${d.p}</span><span><b>Ж</b>${d.f}</span><span><b>У</b>${d.c}</span></div>
-      <div class="foot"><div><div class="price">${fmtRub(price)}</div>${d.discount ? `<div class="old">${fmtRub(d.price)}</div>` : ''}${!sold && left <= 5 ? `<div class="left">Осталось ${left}</div>` : ''}</div>${btn}</div>
+      <div class="foot"><div><div class="price">${fmtRub(price)}</div>${d.discount ? `<div class="old">${fmtRub(d.price)}</div>` : ''}</div>${btn}</div>
     </div></article>`;
 }
 
@@ -132,13 +132,13 @@ function clientStatus(o) {
     return o.status === 'delivering' ? 'Несём наверх' : 'Ждёт клиента';
   }
   if (o.status === 'placed') return 'На стойке кафе';
-  if (o.status === 'ready') return o.mode === 'cafe' ? 'Готов' : 'Готов, несём';
+  if (o.status === 'paid') return 'Готовим';
   return STATUS[o.status].short;
 }
 
 function dishModal(d) {
-  const left = portions(d), inCart = UI.cart[d.id] || 0;
-  const ings = d.recipe.map(x => ING[x.ing] ? ING[x.ing].name.replace(/\s*\(.*\)/, '').toLowerCase() : '').filter(Boolean);
+  const inCart = UI.cart[d.id] || 0;
+  const ings = (d.recipe || []).map(x => ING[x.ing] ? ING[x.ing].name.replace(/\s*\(.*\)/, '').toLowerCase() : '').filter(Boolean);
   return `<div class="overlay" data-act="close-modal"><div class="modal">
     <div class="mh"><h3>${esc(d.name)}</h3><button class="x" data-act="close-modal">×</button></div>
     <div class="mb"><div class="dm-top"><div class="dm-pic" style="--gc:${goalColor(d)}">${d.emoji}</div><div>
@@ -146,9 +146,9 @@ function dishModal(d) {
       <p>${esc(d.desc)}</p>
       <div class="kbju"><div><b>${d.kcal}</b><span>ккал</span></div><div><b>${d.p} г</b><span>белки</span></div><div><b>${d.f} г</b><span>жиры</span></div><div><b>${d.c} г</b><span>углеводы</span></div></div>
       <div class="small muted">Выход ${esc(d.weight)}${d.serves > 1 ? ' · на ' + d.serves + ' персоны, КБЖУ на 1 порцию' : ''} · ${STATION[d.station].name.toLowerCase()}, ${d.cook} мин${d.station === 'bar' ? ' · подаём в стакане с номером заказа' : ''}</div>
-      <div class="small" style="margin-top:8px"><b>Состав:</b> ${esc(ings.join(', '))}</div>
+      ${ings.length ? `<div class="small" style="margin-top:8px"><b>Состав:</b> ${esc(ings.join(', '))}</div>` : ''}
       <div class="row" style="margin-top:16px"><div><div class="price">${fmtRub(effPrice(d))}</div>${d.discount ? `<div class="old">${fmtRub(d.price)}</div>` : ''}</div><span class="spacer"></span>
-        ${d.stop || left === 0 ? '<span class="st out">Закончилось</span>' : (left <= 5 ? `<span class="left">Осталось ${left}</span>` : '')}
+        ${d.stop ? '<span class="st out">Закончилось</span>' : ''}
         ${inCart ? `<div class="stepper"><button data-act="minus" data-id="${d.id}">−</button><span>${inCart}</span><button data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'}>+</button></div>` : `<button class="btn primary" data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'}>В корзину</button>`}
       </div></div></div></div></div></div>`;
 }
@@ -261,9 +261,8 @@ function cardError() {
   return '';
 }
 function placeOrder() {
-  const need = needFor(UI.cart);
-  const short = Object.entries(need).filter(([ing, q]) => available(ing) < q - 1e-9);
-  if (short.length) { const dishes = Object.keys(UI.cart).filter(id => DISH[id].recipe.some(x => short.some(([i]) => i === x.ing))); UI.drawer = 'cart'; render(); toast('Пока вы оформляли, закончилось: ' + dishes.map(id => DISH[id].name).join(', '), 'warn', 6000); return; }
+  const stopped = Object.keys(UI.cart).filter(id => DISH[id] && DISH[id].stop);
+  if (stopped.length) { UI.drawer = 'cart'; render(); toast('Пока вы оформляли, закончилось: ' + stopped.map(id => DISH[id].name).join(', '), 'warn', 6000); return; }
   const tm = coTimes(), lc = coCalc(), L = lset();
   const email = UI.co.rcTo === 'email' ? UI.co.email.trim() : '';
   const o = buildOrder(S.catalog, Object.entries(UI.cart), { no: UI.co.no || newOrderNo(), name: UI.co.name.trim(), phone: UI.co.phone.trim(), email, card: UI.co.card.trim(), comment: UI.co.comment.trim(), mode: UI.co.mode, payMethod: UI.co.pay, readyAt: tm.t, minAt: tm.min });
@@ -271,7 +270,7 @@ function placeOrder() {
   const tr = orderTrainerFor(lc.pay); if (tr) o.trainer = tr;
   if (lc.welcome) Object.assign(o, { welcomeTtl: L.ttlDays, welcomeSpend: L.spendPct });
   o.rcTo = email ? 'email' : 'pdf';
-  fiscalOnPaid(o); saveOrder(o); addMyOrder(o.id);
+  fiscalOnPaid(o); raSend(o); saveOrder(o); addMyOrder(o.id);          // оплачен → чек облачной кассы и заказ в РестАрт
   setSession(coKey()); rememberPhone(coKey());
   UI.cart = {}; UI.co.no = ''; UI.lastOrder = o.id; UI.drawer = 'success'; render();
 }
@@ -317,14 +316,14 @@ function orderCardBody(o, fresh) {
     ${orderLoyaltyRows(o)}<div class="sum-row total"><span>${o.status === 'cancelled' ? 'Возвращено' : 'Оплачено'} ${o.payMethod === 'sbp' ? 'по СБП' : 'картой'}</span><span>${fmtRub(paidOf(o))}</span></div>${orderWelcomeNote(o)}`;
 }
 function trackModal(o) {
-  const steps = o.mode === 'cafe' ? [['paid', 'Принят'], ['cooking', 'Готовится'], ['ready', 'Готов'], ['placed', 'На стойке кафе'], ['done', 'Получен']]
-    : [['paid', 'Принят'], ['cooking', 'Готовится'], ['ready', 'Готов'], ['delivering', 'Официант несёт наверх'], ['placed', o.bag.need && o.cup.need ? 'В ячейке и на стойке' : o.bag.need ? 'В ячейке' + (o.bag.cell ? ' ' + o.bag.cell : '') : 'На стойке ресепшена'], ['done', 'Получен']];
+  const steps = o.mode === 'cafe' ? [['paid', 'Принят, готовим к ' + fmtTime(o.readyAt)], ['placed', 'На стойке кафе'], ['done', 'Получен']]
+    : [['paid', 'Принят, готовим к ' + fmtTime(o.readyAt)], ['delivering', 'Официант несёт наверх'], ['placed', o.bag.need && o.cup.need ? 'В ячейке и на стойке' : o.bag.need ? 'В ячейке' + (o.bag.cell ? ' ' + o.bag.cell : '') : 'На стойке ресепшена'], ['done', 'Получен']];
   const order = steps.map(s => s[0]); let idx = order.indexOf(o.status); if (idx < 0) idx = 0;
   return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(560px,100%)">
     <div class="mh"><h3>Заказ №${o.no}</h3><button class="x" data-act="close-modal">×</button></div>
     <div class="mb">${o.status === 'cancelled' ? '<div class="note red">Заказ отменён, деньги вернутся на карту в течение нескольких минут.</div>' : `<div class="track hz">${steps.map(([k, t], i) => `<div class="tstep ${i <= idx ? 'done' : ''} ${i === idx && k !== 'done' ? 'cur' : ''}"><div class="c">${i <= idx ? '✓' : i + 1}</div><div><div class="t">${t}</div><div class="w">${o.history && o.history[k] ? fmtTime(o.history[k]) : ''}</div></div></div>`).join('')}</div>`}
       ${orderCardBody(o, false)}</div>
-    <div class="mf">${o.status === 'paid' && !o.tasks.some(t => t.start) ? `<button class="btn danger" data-act="cancel-order" data-id="${o.id}">Отменить заказ</button>` : ''}<span class="spacer"></span><button class="btn" data-act="close-modal">Закрыть</button></div>
+    <div class="mf">${o.status === 'paid' && Date.now() < cancelUntil(o) ? `<button class="btn danger" data-act="cancel-order" data-id="${o.id}" title="Можно до ${fmtTime(cancelUntil(o))}">Отменить заказ</button>` : ''}<span class="spacer"></span><button class="btn" data-act="close-modal">Закрыть</button></div>
   </div></div>`;
 }
 function myOrdersModal() {

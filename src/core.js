@@ -55,15 +55,13 @@ const DEFAULT_SETTINGS = { safety: 20, growth: 0, promo: true, stations: { hot: 
   loyalty: { on: true, welcomePct: 100, welcomeCap: 1000, spendPct: 25, ttlDays: 90, staffDiscount: 20, clubFee: 5, trainerOn: true, trainerPct: 5, payouts: [], confirmCode: true,
     staff: [{ phone: '+7 900 111-11-11', name: 'Алексей Смирнов', role: 'Тренер', code: '101' }, { phone: '+7 900 111-22-22', name: 'Ирина Котова', role: 'Тренер', code: '102' }, { phone: '+7 900 111-33-33', name: 'Ольга Ветрова', role: 'Администратор клуба' }] } };
 const STATUS = {
-  paid:       { short: 'Принят', name: 'Принят, ждёт старта на кухне', color: 'blue' },
-  cooking:    { short: 'Готовится', name: 'Готовится', color: 'orange' },
-  ready:      { short: 'Готов', name: 'Готов, ждёт официанта', color: 'violet' },
+  paid:       { short: 'На кухне', name: 'Принят, кухня готовит по бегунку из РестАрт', color: 'blue' },
   delivering: { short: 'Несём', name: 'Официант несёт заказ', color: 'violet' },
   placed:     { short: 'Можно забирать', name: 'Можно забирать', color: 'green' },
   done:       { short: 'Получен', name: 'Получен', color: 'grey' },
   cancelled:  { short: 'Отменён', name: 'Отменён, деньги возвращены', color: 'red' },
 };
-const ACTIVE = ['paid', 'cooking', 'ready', 'delivering'];
+const ACTIVE = ['paid', 'delivering'];
 const CAT_V = 10;
 
 /* ===== Сборка демо-данных ===== */
@@ -72,7 +70,7 @@ function dishFromSpec(s) {
   return { id, name, type, goals, price, weight, kcal, p, f, c, cook, emoji, pop, desc, serves: serves || 1,
     station: BAR_DISHES.includes(id) ? 'bar' : COLD_DISHES.includes(id) ? 'cold' : 'hot', sub: DRINK_SUB[id] || null,
     recipe: Object.entries(recipe).map(([ing, qty]) => ({ ing, qty })),
-    hit: INITIAL_PROMO.hits.includes(id), discount: INITIAL_PROMO.discounts[id] || 0, stop: false };
+    hit: INITIAL_PROMO.hits.includes(id), discount: INITIAL_PROMO.discounts[id] || 0, stop: false, rc: String(1001 + DISH_SPEC.findIndex(x => x[0] === id)) };
 }
 function buildSeedCatalog() {
   const dishes = DISH_SPEC.map(dishFromSpec);
@@ -130,13 +128,12 @@ function buildSeedOrders(cat) {
   const mk = (name, phone, mode, items, readyIn, status, extra = {}) => {
     const o = buildOrder(cat, items, { no: no(), name, phone, mode, readyAt: ceilMin(now + readyIn * MIN), status, payMethod: Math.random() > .5 ? 'card' : 'sbp', demo: true, comment: extra.comment || '' });
     o.createdAt = o.readyAt - 70 * MIN; o.history = { paid: o.createdAt };
-    const flow = ['paid', 'cooking', 'ready', 'delivering', 'placed', 'done'], k = flow.indexOf(status);
-    const t0 = o.readyAt - 40 * MIN;
-    if (status === 'cooking') { o.tasks[0].start = now - 5 * MIN; o.history.cooking = o.tasks[0].start; }
-    if (k >= 2) { o.tasks.forEach(t => { t.start = t0; t.done = t0 + t.dur; }); o.history.cooking = t0; o.pack.done = o.pack.need ? t0 + 22 * MIN : undefined; o.history.ready = o.readyAt - 12 * MIN; o.writtenOff = true; }
-    if (k >= 3) o.history.delivering = o.readyAt - 9 * MIN;
-    if (k >= 4) { o.pickTok = rndTok('P-'); o.history.placed = o.readyAt - 3 * MIN; if (o.cup.need) o.cup.placedAt = o.history.placed; if (o.bag.need && mode === 'gym') { o.bag.cell = extra.cell; o.bag.depositedAt = o.history.placed; } if (mode === 'cafe') o.shelfAt = o.history.placed; }
-    if (k >= 5) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; if (o.cup.need) o.cup.pickedAt = o.history.done; }
+    const flow = ['paid', 'delivering', 'placed', 'done'], k = flow.indexOf(status);
+    raSend(o, o.createdAt + 20e3);
+    if (!extra.fresh) o.ra.printed = o.createdAt + 2 * MIN;           // бегунок уже у кухни; fresh — кассир ещё не напечатал
+    if (k >= 1) o.history.delivering = o.readyAt - 9 * MIN;
+    if (k >= 2) { o.pickTok = rndTok('P-'); o.history.placed = o.readyAt - 3 * MIN; if (o.cup.need) o.cup.placedAt = o.history.placed; if (o.bag.need && mode === 'gym') { o.bag.cell = extra.cell; o.bag.depositedAt = o.history.placed; } if (mode === 'cafe') o.shelfAt = o.history.placed; }
+    if (k >= 3) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; if (o.cup.need) o.cup.pickedAt = o.history.done; }
     o.email = extra.email != null ? extra.email : emails[ix++ % emails.length];
     const LY = cat.settings.loyalty;
     if (extra.loy === 'welcome') Object.assign(o, { welcome: Math.min(o.total, LY.welcomeCap || o.total), welcomeTtl: LY.ttlDays, welcomeSpend: LY.spendPct });
@@ -148,11 +145,11 @@ function buildSeedOrders(cat) {
     return o;
   };
   const list = [
-    mk('Анна', '+7 916 ••• 21 40', 'gym', [['caesar', 1], ['shakeberry', 1]], 55, 'paid', { comment: 'Без гренок', trainer: '101' }),
+    mk('Анна', '+7 916 ••• 21 40', 'gym', [['caesar', 1], ['shakeberry', 1]], 55, 'paid', { comment: 'Без гренок', trainer: '101', fresh: true }),
     mk('Игорь', '+7 903 ••• 77 12', 'gym', [['megabowl', 1], ['gainer', 1]], 22, 'paid'),
     mk('Ксения', '+7 985 ••• 50 03', 'gym', [['cappuccino', 1], ['greensmoothie', 1]], 12, 'paid'),
-    mk('Мария', '+7 925 ••• 10 05', 'cafe', [['bolognese', 1], ['kidcutlets', 1]], 21, 'cooking'),
-    mk('Дмитрий', '+7 999 ••• 45 61', 'gym', [['chickenrice', 1], ['bar', 2], ['americano', 1]], 6, 'ready'),
+    mk('Мария', '+7 925 ••• 10 05', 'cafe', [['bolognese', 1], ['kidcutlets', 1]], 21, 'paid'),
+    mk('Дмитрий', '+7 999 ••• 45 61', 'gym', [['chickenrice', 1], ['bar', 2], ['americano', 1]], 6, 'paid'),
     mk('Елена', '+7 915 ••• 33 18', 'gym', [['salmonbatat', 1], ['mors', 1]], -4, 'placed', { cell: 'B2' }),
     mk('Ольга', '+7 926 ••• 81 93', 'cafe', [['greek', 1], ['cappuccino', 1]], -2, 'placed'),
     mk('Сергей', '+7 901 ••• 62 70', 'gym', [['teriyaki', 1], ['shakebanana', 1]], -45, 'done', { cell: 'C1', trainer: '101' }),
@@ -175,6 +172,7 @@ function buildSeedOrders(cat) {
 }
 function buildSeedLockers(orders) {
   const L = { cells: clone(LOCKER_SEED), log: [] };
+  upgradeLockers(L);
   orders.filter(o => o.status === 'placed' && o.bag.cell).forEach(o => { const c = L.cells.find(x => x.id === o.bag.cell); Object.assign(c, { state: 'occupied', orderId: o.id, no: o.no, since: o.bag.depositedAt }); });
   return L;
 }
@@ -212,10 +210,10 @@ function seedLocal() { const cat = buildSeedCatalog(); S.catalog = cat; reindex(
 function loadLocal() {
   const cat = LS.get(LS_CAT);
   if (!cat || cat.v !== CAT_V) seedLocal();
-  else { S.catalog = cat; reindex(); S.orders = LS.get(LS_ORD) || {}; S.lockers = LS.get(LS_LOCK) || { cells: clone(LOCKER_SEED), log: [] }; }
+  else { S.catalog = cat; reindex(); S.orders = LS.get(LS_ORD) || {}; Object.values(S.orders).forEach(normalizeOrder); S.lockers = LS.get(LS_LOCK) || { cells: clone(LOCKER_SEED), log: [] }; upgradeLockers(S.lockers); }
 }
 function saveLocal() { LS.set(LS_CAT, S.catalog); LS.set(LS_ORD, S.orders); LS.set(LS_LOCK, S.lockers); if (BC) try { BC.postMessage('sync'); } catch (e) { } }
-function syncFromLocal() { const c = LS.get(LS_CAT); if (!c) return; const before = S.orders; S.catalog = c; reindex(); S.orders = LS.get(LS_ORD) || {}; S.lockers = LS.get(LS_LOCK) || S.lockers; onOrdersChanged(before); render(); }
+function syncFromLocal() { const c = LS.get(LS_CAT); if (!c) return; const before = S.orders; S.catalog = c; reindex(); S.orders = LS.get(LS_ORD) || {}; Object.values(S.orders).forEach(normalizeOrder); S.lockers = LS.get(LS_LOCK) || S.lockers; upgradeLockers(S.lockers); onOrdersChanged(before); render(); }
 
 let DB = null, USER = null, CAN_WRITE = null;
 const writeChains = {};
@@ -244,6 +242,7 @@ function upgradeCatalog(c) {
     if (c.settings[k] === undefined) c.settings[k] = clone(v);
     else if (v && typeof v === 'object' && !Array.isArray(v) && c.settings[k] && typeof c.settings[k] === 'object') c.settings[k] = Object.assign(clone(v), c.settings[k]);
   }
+  (c.dishes || []).forEach(d => { if (!d.rc) { const i = DISH_SPEC.findIndex(x => x[0] === d.id); if (i >= 0) d.rc = String(1001 + i); } });   // коды РестАрт
   return c;
 }
 async function initDb() {
@@ -298,7 +297,7 @@ async function migrateSharedCatalog() {
 let _ordersPrimed = false;
 const ordersQuery = () => DB.collection('orders').orderBy('readyAt', 'desc').limit(400);
 function applyOrders(qs) {
-  const m = {}; qs.docs.forEach(d => { const o = d.data(); if (o && o.id && o.tasks) m[o.id] = clone(o); });
+  const m = {}; qs.docs.forEach(d => { const o = d.data(); if (o && o.id && o.tasks) m[o.id] = normalizeOrder(clone(o)); });
   const sig = JSON.stringify(m);
   S.sync.at = Date.now(); S.sync.orders = Object.keys(m).length;
   if (sig === applyOrders.sig) return;
@@ -319,7 +318,12 @@ function subscribeRest() {
   ordersQuery().onSnapshot(applyOrders, err => { S.sync.error = 'заказы: ' + (err && err.code); S.dbNote = 'Заказы из общей базы не загрузились (' + (err && err.code) + ').'; render(); });
   /* страховка: если живой поток недоступен, платформа обновляет данные раз в ~30 с — подтягиваем заказы сами каждые 8 с */
   setInterval(() => { if (S.mode === 'db' && document.visibilityState === 'visible') ordersQuery().get().then(applyOrders).catch(e => { S.sync.error = 'обновление: ' + ((e && e.code) || 'unknown'); }); }, 8000);
-  DB.doc('shop/lockers').onSnapshot(snap => { if (snap.exists) { S.lockers = clone(snap.data()); _cache = {}; render(); } }, () => { });
+  DB.doc('shop/lockers').onSnapshot(snap => {
+    if (!snap.exists) return;
+    S.lockers = clone(snap.data()); _cache = {};
+    if (upgradeLockers(S.lockers) && !(snap.metadata && snap.metadata.fromCache) && CAN_WRITE !== false) saveLockers();   // 16 одинаковых ячеек
+    render();
+  }, () => { });
 }
 async function writeSeed() {
   const qs = await DB.collection('orders').limit(1000).get();
@@ -346,29 +350,9 @@ async function resetDemo() {
   } else { LS.del(LS_MY); _memMy = []; seedLocal(); toast('Демо-данные восстановлены', 'ok'); render(); }
 }
 
-/* ===== Цены, резерв, порции ===== */
+/* ===== Цены и стоп-лист (остатки продуктов ведутся в РестАрт и 1С) ===== */
 const effPrice = d => Math.round(d.price * (1 - (d.discount || 0) / 100));
-function reserved() {
-  return memo('reserved', () => {
-    const r = {};
-    Object.values(S.orders).forEach(o => {
-      if (o.status === 'cancelled' || !o.tasks) return;
-      o.tasks.forEach(t => { if (t.start) return; const it = o.items[t.i], d = DISH[it.d]; if (!d) return; d.recipe.forEach(x => { r[x.ing] = (r[x.ing] || 0) + x.qty * it.q; }); });
-    });
-    return r;
-  });
-}
-const available = id => (ING[id] ? ING[id].stock : 0) - (reserved()[id] || 0);
-function portions(d, extra) {
-  if (!d.recipe.length) return 99;
-  let m = Infinity;
-  d.recipe.forEach(x => { const a = available(x.ing) - ((extra && extra[x.ing]) || 0); m = Math.min(m, Math.floor(a / x.qty + 1e-9)); });
-  return Math.max(0, m === Infinity ? 0 : m);
-}
-function limitingIng(d) { let m = Infinity, lim = null; d.recipe.forEach(x => { const p = available(x.ing) / x.qty; if (p < m) { m = p; lim = x.ing; } }); return lim; }
-const onSale = d => !d.stop && portions(d) > 0;
-const dishCost = d => d.recipe.reduce((s, x) => { const i = ING[x.ing]; return i ? s + unitCost(x.qty, i.unit, i.offers[0].price) : s; }, 0);
-function needFor(items) { const r = {}; Object.entries(items).forEach(([id, q]) => { const d = DISH[id]; if (!d) return; d.recipe.forEach(x => { r[x.ing] = (r[x.ing] || 0) + x.qty * q; }); }); return r; }
+const onSale = d => !d.stop;
 
 /* ===== История продаж и прогноз ===== */
 function histSales(d, date) {
@@ -379,42 +363,15 @@ function histSales(d, date) {
   const weeksAgo = (startOfDay(new Date()) - startOfDay(date)) / (7 * 864e5);
   return Math.floor((d.pop || 3) * SCALE * wf * (1 - 0.015 * weeksAgo) * (0.7 + r() * 0.6) + r());
 }
-function forecastDish(d, date) {
-  if (d.stop) return 0;
-  const st = S.catalog.settings; let s = 0;
-  for (let k = 1; k <= 4; k++) s += histSales(d, addDays(date, -7 * k));
-  let f = s / 4 * (1 + (st.growth || 0) / 100);
-  if (st.promo) f *= (d.hit ? 1.3 : 1) * (1 + 1.5 * (d.discount || 0) / 100);
-  return f;
-}
-const dayRemainFrac = () => { const n = new Date(); const h = n.getHours() + n.getMinutes() / 60; return Math.min(1, Math.max(0, (CLOSE_H - h) / (CLOSE_H - OPEN_H))); };
-function ingDemandByDay() {
-  return memo('demand', () => {
-    const today = startOfDay(new Date()), frac = dayRemainFrac(), out = [];
-    for (let k = 0; k < 21; k++) { const date = addDays(today, k), need = {}; S.catalog.dishes.forEach(d => { const f = forecastDish(d, date) * (k === 0 ? frac : 1); if (!f) return; d.recipe.forEach(x => { need[x.ing] = (need[x.ing] || 0) + f * x.qty; }); }); out.push({ date, need }); }
-    return out;
-  });
-}
-function demandBetween(ing, from, to) { const a = startOfDay(from).getTime(), b = startOfDay(to).getTime(); return ingDemandByDay().reduce((s, x) => s + (x.date.getTime() >= a && x.date.getTime() < b ? (x.need[ing] || 0) : 0), 0); }
-function avgDailyNeed(ing) { const days = ingDemandByDay().slice(1, 8); return days.reduce((s, x) => s + (x.need[ing] || 0), 0) / days.length; }
 function firstDeliveryOnOrAfter(sup, date) { let d = startOfDay(date); for (let i = 0; i < 14; i++) { if (sup.days.includes(isoDow(d))) return d; d = addDays(d, 1); } return d; }
 function deliverySchedule(sup, now = new Date()) { const lead = sup.lead + (now.getHours() >= sup.cutoff ? 1 : 0); const next = firstDeliveryOnOrAfter(sup, addDays(startOfDay(now), lead)); return { next, following: firstDeliveryOnOrAfter(sup, addDays(next, 1)) }; }
-function orderedQty(ing) { return S.catalog.pos.filter(p => p.status === 'draft' || p.status === 'sent').reduce((s, p) => s + p.items.filter(i => i.ing === ing).reduce((a, i) => a + i.qty, 0), 0); }
-function planRow(ing, supId) {
-  const sup = SUP[supId] || SUP[ing.offers[0].s]; const { next, following } = deliverySchedule(sup); const today = new Date();
-  const avail = available(ing.id), ordered = orderedQty(ing.id), needToNext = demandBetween(ing.id, today, next), needTotal = demandBetween(ing.id, today, following);
-  let qty = needTotal * (1 + (S.catalog.settings.safety || 0) / 100) - avail - ordered; qty = qty > 0 ? Math.ceil(qty / ing.pack) * ing.pack : 0;
-  const off = ing.offers.find(o => o.s === sup.id) || ing.offers[0];
-  return { ing, sup, next, following, avail, ordered, needToNext, needTotal, qty, price: off.price, sum: unitCost(qty, ing.unit, off.price), risk: avail + ordered < needToNext * 0.999 && needToNext > 0 };
-}
-function defaultSupplier(ing) { const main = ing.offers[0].s, r = planRow(ing, main); if (r.risk) { const alt = ing.offers.find(o => SUP[o.s] && SUP[o.s].backup); if (alt && deliverySchedule(SUP[alt.s]).next < r.next) return alt.s; } return main; }
 
-/* ===== Планировщик кухни ===== */
-const st = () => S.catalog.settings;
+/* ===== Загрузка кухни: только для расчёта ближайшего времени (кухня работает в РестАрт по бегункам) ===== */
+const st = () => (S.catalog && S.catalog.settings) || DEFAULT_SETTINGS;
 function deliverMs(o) { const s = st(); return (o.mode === 'cafe' ? s.deliver.cafe : (o.bag.need ? s.deliver.locker : s.deliver.counter)) * MIN; }
 const packMs = o => o.pack.need ? st().packMin * MIN : 0;
 const deadlineOf = o => o.readyAt - deliverMs(o) - packMs(o);
-const kitchenOrders = () => Object.values(S.orders).filter(o => o.tasks && (o.status === 'paid' || o.status === 'cooking'));
+const kitchenOrders = () => Object.values(S.orders).filter(o => o.tasks && o.status === 'paid');
 function latestFit(busy, latest, dur, now) {
   const cands = [latest, ...busy.map(b => b[0] - dur)].filter(s => s <= latest && s >= now).sort((a, b) => b - a);
   for (const s of cands) if (!busy.some(b => s < b[1] && s + dur > b[0])) return s;
@@ -430,16 +387,21 @@ function schedule(extra) {
   const slots = {}; STATIONS.forEach(x => { slots[x.id] = Array.from({ length: Math.max(1, s.stations[x.id] || 1) }, () => []); });
   const plan = {}, pending = [];
   const orders = kitchenOrders().concat(extra ? [extra] : []);
+  /* отметок поваров нет: кухня работает по бегунку, считаем, что она идёт по плану —
+     позиция, которую пора было начать, уже в работе; та, что по плану готова, цех не занимает */
   orders.forEach(o => o.tasks.forEach((t, ix) => {
-    const key = o.id + ':' + ix;
-    if (t.done) return;
-    if (t.start) {
-      const end = Math.max(t.start + t.dur, now + 30e3), sl = slots[t.st] || slots.hot;
-      let si = sl.findIndex(b => !b.some(x => t.start < x[1] && end > x[0])); if (si < 0) si = 0;
-      sl[si].push([t.start, end]); plan[key] = { o, t, ix, start: t.start, end, si, started: true, late: end > deadlineOf(o) + 30e3 };
-      return;
+    const key = o.id + ':' + ix, D = deadlineOf(o);
+    if (o.id !== 'draft') {
+      if (D <= now) return;
+      const s0 = D - t.dur;
+      if (s0 <= now) {
+        const sl = slots[t.st] || slots.hot;
+        let si = sl.findIndex(b => !b.some(x => s0 < x[1] && D > x[0])); if (si < 0) si = 0;
+        sl[si].push([s0, D]); plan[key] = { o, t, ix, start: s0, end: D, si, started: true, late: false };
+        return;
+      }
     }
-    pending.push({ o, t, ix, key, D: deadlineOf(o) });
+    pending.push({ o, t, ix, key, D });
   }));
   pending.sort((a, b) => (b.D - a.D) || (b.t.dur - a.t.dur));
   pending.forEach(p => {
@@ -453,7 +415,27 @@ function schedule(extra) {
 }
 const plan = () => memo('plan' + Math.floor(Date.now() / 15000), () => schedule());
 const lateCount = (p, exceptId) => Object.values(p).filter(x => x.late && x.o.id !== exceptId).length;
-function orderFinishAt(o, p) { const ends = o.tasks.map((t, ix) => t.done || (p[o.id + ':' + ix] || {}).end || 0); return Math.max(...ends) + packMs(o) + deliverMs(o); }
+function orderFinishAt(o, p) { const ends = o.tasks.map((t, ix) => (p[o.id + ':' + ix] || {}).end || 0); return Math.max(...ends) + packMs(o) + deliverMs(o); }
+/* когда кухне начать (печатается на бегунке) и до какого момента клиент может отменить */
+const cookStartOf = o => Math.min(...o.tasks.map(t => deadlineOf(o) - t.dur));
+const cancelUntil = o => o.status !== 'paid' ? 0 : Math.max((o.cookStart || cookStartOf(o)) - 5 * MIN, (o.history.paid || o.createdAt) + 3 * MIN);
+/* передача в РестАрт (в демо — сразу): кассир видит заказ и печатает бегунок для кухни */
+function raSend(o, at) { o.ra = { st: 'sent', id: 'RA-' + o.no, at: at || Date.now(), printed: null }; o.cookStart = cookStartOf(o); }
+/* заказы старых версий демо: статусы «готовится» и «готов» стали «на кухне» */
+function normalizeOrder(o) {
+  if (!o || !o.tasks) return o;
+  if (o.status === 'cooking' || o.status === 'ready') o.status = 'paid';
+  if (!o.ra && o.status !== 'cancelled') { o.ra = { st: 'sent', id: 'RA-' + o.no, at: (o.history && o.history.paid) || o.createdAt, printed: (o.history && o.history.paid) || o.createdAt }; }
+  if (!o.cookStart) o.cookStart = cookStartOf(o);
+  return o;
+}
+/* шкаф: 16 одинаковых ячеек (A–D × 1–4); у старых версий демо было 12 разного размера */
+function upgradeLockers(L) {
+  if (!L || !L.cells || (L.cells.length === 16 && L.cells.every(c => c.size === 'L'))) return false;
+  const old = Object.fromEntries(L.cells.map(c => [c.id, c]));
+  L.cells = LOCKER_SEED.map(c => Object.assign({}, c, old[c.id] || {}, { size: 'L' }));
+  return true;
+}
 /* минимальное время готовности корзины */
 function minReadyAt(cart, mode) {
   const ids = Object.keys(cart).filter(id => DISH[id]); if (!ids.length) return null;
@@ -474,29 +456,18 @@ function minReadyAt(cart, mode) {
 }
 
 /* ===== Операции ===== */
-function addMove(ing, qty, type, note) { S.catalog.moves.unshift({ id: uid('m'), at: Date.now(), ing, qty, type, note }); if (S.catalog.moves.length > 200) S.catalog.moves.length = 200; }
-function writeOffItems(items, type, note) {
-  items.forEach(it => { const d = DISH[it.d]; if (!d) return; d.recipe.forEach(x => { const i = ING[x.ing]; if (!i) return; i.stock = Math.max(0, +(i.stock - x.qty * it.q).toFixed(2)); addMove(x.ing, -x.qty * it.q, type, note); }); });
-}
 function mark(o, status) { o.status = status; o.history = o.history || {}; o.history[status] = Date.now(); if (status === 'done') fiscalOnDone(o); }
-function refreshStatus(o) {
-  if (o.status === 'cancelled' || o.status === 'done') return;
-  const allDone = o.tasks.every(t => t.done), anyStart = o.tasks.some(t => t.start);
-  if (o.status === 'paid' && anyStart) mark(o, 'cooking');
-  if ((o.status === 'paid' || o.status === 'cooking') && allDone && (!o.pack.need || o.pack.done)) mark(o, 'ready');
+function cancelOrder(oid) {
+  const o = clone(S.orders[oid]); if (o.status !== 'paid' || Date.now() > cancelUntil(o)) return false;
+  mark(o, 'cancelled'); fiscalOnCancel(o);
+  if (o.ra) o.ra.st = 'cancelled';                                  // отмена ушла в РестАрт — кассир видит «не готовить»
+  saveOrder(o); return true;
 }
-function taskStart(oid, ix) {
-  const o = clone(S.orders[oid]); const t = o.tasks[ix]; if (!t || t.start) return;
-  t.start = Date.now(); const it = o.items[t.i];
-  writeOffItems([{ d: it.d, q: it.q }], 'order', 'Заказ №' + o.no); saveCatalog();
-  refreshStatus(o); saveOrder(o);
-}
-function taskDone(oid, ix) { const o = clone(S.orders[oid]); const t = o.tasks[ix]; if (!t) return; if (!t.start) t.start = Date.now(); t.done = Date.now(); refreshStatus(o); saveOrder(o); }
-function packDone(oid) { const o = clone(S.orders[oid]); o.pack.done = Date.now(); refreshStatus(o); saveOrder(o); }
-function cancelOrder(oid) { const o = clone(S.orders[oid]); if (o.tasks.some(t => t.start)) return false; mark(o, 'cancelled'); fiscalOnCancel(o); saveOrder(o); return true; }
+/* кассир напечатал бегунок и отнёс на кухню (в жизни — в РестАрт) */
+function raPrinted(oid) { const o = clone(S.orders[oid]); if (!o.ra) return; o.ra.printed = Date.now(); saveOrder(o); }
 function newOrderNo() { const used = new Set(Object.values(S.orders).filter(o => sameDay(o.createdAt, Date.now())).map(o => o.no)); let n; do { n = String(100 + Math.floor(Math.random() * 900)); } while (used.has(n)); return n; }
 function allPlaced(o) { if (o.mode === 'cafe') return !!o.shelfAt; return (!o.cup.need || o.cup.placedAt) && (!o.bag.need || o.bag.depositedAt); }
-function takeOrder(oid) { const o0 = S.orders[oid]; if (!o0 || o0.status !== 'ready') return null; let cell = null; if (o0.mode === 'gym' && o0.bag.need) { cell = allocateCell(oid); if (!cell) { toast('Нет свободных ячеек подходящего размера', 'warn'); return null; } } const o = clone(S.orders[oid]); mark(o, 'delivering'); saveOrder(o); return cell; }
+function takeOrder(oid) { const o0 = S.orders[oid]; if (!o0 || o0.status !== 'paid' || o0.mode !== 'gym') return null; let cell = null; if (o0.bag.need) { cell = allocateCell(oid); if (!cell) { toast('Нет свободных ячеек — освободите ячейку или подождите', 'warn'); return null; } } const o = clone(S.orders[oid]); mark(o, 'delivering'); saveOrder(o); return cell; }
 function shelfPlace(oid) { const o = clone(S.orders[oid]); o.shelfAt = Date.now(); o.pickTok = rndTok('P-'); if (o.cup.need) o.cup.placedAt = o.shelfAt; mark(o, 'placed'); saveOrder(o); }
 function cafeHandOver(oid) { const o = clone(S.orders[oid]); const t = Date.now(); if (o.bag.need) o.bag.pickedAt = t; if (o.cup.need) o.cup.pickedAt = t; o.pickedBy = 'staff'; mark(o, 'done'); saveOrder(o); }
 
@@ -593,8 +564,7 @@ function notifyMyOrders(before) {
     if (o.cup.placedAt && !b.cup.placedAt && o.mode === 'gym') { toast(`Заказ №${o.no} доставлен на стойку ресепшена — заберите стакан с номером №${o.no}`, 'ok', 9000); openId = openId || o.id; }
     if (o.shelfAt && !b.shelfAt) { toast(`Заказ №${o.no} ждёт вас на стойке кафе`, 'ok', 8000); openId = openId || o.id; }
     if (b.status !== o.status) {
-      if (o.status === 'cooking') toast(`Заказ №${o.no}: начали готовить`, 'info');
-      else if (o.status === 'delivering') toast(`Заказ №${o.no}: официант несёт наверх`, 'info');
+      if (o.status === 'delivering') toast(`Заказ №${o.no}: официант несёт наверх`, 'info');
     }
   });
   // показываем страницу заказа в момент доставки, если клиент не занят другим окном
