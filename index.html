@@ -533,6 +533,8 @@ body[data-app="kitchen"] .kbtn:disabled{opacity:.55}
 
 button.dbstate{background:none;border:0;padding:4px 6px;border-radius:8px;cursor:pointer;font:inherit;color:#b7c2bb}
 button.dbstate:hover{background:rgba(255,255,255,.06)}
+/* бегунок кассы РестАрт (имитация) */
+.runner{font-family:'PT Mono','DejaVu Sans Mono',ui-monospace,monospace;font-size:13px;line-height:1.45;background:#fffdf6;border:1px dashed #d8cfb5;border-radius:10px;padding:12px 14px;white-space:pre-wrap;margin:0 0 10px}
 
 .site-head,.admin-head{top:var(--dbh,38px)}
 </style>
@@ -757,7 +759,7 @@ const STATIONS = [
   { id: 'bar',  name: 'Бар',          short: 'Бар',      color: '#7b5cc4' },
 ];
 const STATION = Object.fromEntries(STATIONS.map(s => [s.id, s]));
-const LOCKER_SEED = ['A1','A2','A3','A4','B1','B2','B3','B4','C1','C2','C3','C4'].map(id => ({ id, size: id[0] === 'A' ? 'S' : id[0] === 'B' ? 'M' : 'L', state: 'free' }));
+const LOCKER_SEED = ['A', 'B', 'C', 'D'].flatMap(r => [1, 2, 3, 4].map(n => ({ id: r + n, size: 'L', state: 'free' })));   // 16 одинаковых ячеек под пакет с заказом
 const ARTIFACT_URL = 'https://claude.ai/artifact/Eyvb1JZBVaQmyWDWiUTJLe';
 
 /* ===== Расширение меню (v3): новые блюда во всех категориях и линейка напитков ===== */
@@ -957,15 +959,13 @@ const DEFAULT_SETTINGS = { safety: 20, growth: 0, promo: true, stations: { hot: 
   loyalty: { on: true, welcomePct: 100, welcomeCap: 1000, spendPct: 25, ttlDays: 90, staffDiscount: 20, clubFee: 5, trainerOn: true, trainerPct: 5, payouts: [], confirmCode: true,
     staff: [{ phone: '+7 900 111-11-11', name: 'Алексей Смирнов', role: 'Тренер', code: '101' }, { phone: '+7 900 111-22-22', name: 'Ирина Котова', role: 'Тренер', code: '102' }, { phone: '+7 900 111-33-33', name: 'Ольга Ветрова', role: 'Администратор клуба' }] } };
 const STATUS = {
-  paid:       { short: 'Принят', name: 'Принят, ждёт старта на кухне', color: 'blue' },
-  cooking:    { short: 'Готовится', name: 'Готовится', color: 'orange' },
-  ready:      { short: 'Готов', name: 'Готов, ждёт официанта', color: 'violet' },
+  paid:       { short: 'На кухне', name: 'Принят, кухня готовит по бегунку из РестАрт', color: 'blue' },
   delivering: { short: 'Несём', name: 'Официант несёт заказ', color: 'violet' },
   placed:     { short: 'Можно забирать', name: 'Можно забирать', color: 'green' },
   done:       { short: 'Получен', name: 'Получен', color: 'grey' },
   cancelled:  { short: 'Отменён', name: 'Отменён, деньги возвращены', color: 'red' },
 };
-const ACTIVE = ['paid', 'cooking', 'ready', 'delivering'];
+const ACTIVE = ['paid', 'delivering'];
 const CAT_V = 10;
 
 /* ===== Сборка демо-данных ===== */
@@ -974,7 +974,7 @@ function dishFromSpec(s) {
   return { id, name, type, goals, price, weight, kcal, p, f, c, cook, emoji, pop, desc, serves: serves || 1,
     station: BAR_DISHES.includes(id) ? 'bar' : COLD_DISHES.includes(id) ? 'cold' : 'hot', sub: DRINK_SUB[id] || null,
     recipe: Object.entries(recipe).map(([ing, qty]) => ({ ing, qty })),
-    hit: INITIAL_PROMO.hits.includes(id), discount: INITIAL_PROMO.discounts[id] || 0, stop: false };
+    hit: INITIAL_PROMO.hits.includes(id), discount: INITIAL_PROMO.discounts[id] || 0, stop: false, rc: String(1001 + DISH_SPEC.findIndex(x => x[0] === id)) };
 }
 function buildSeedCatalog() {
   const dishes = DISH_SPEC.map(dishFromSpec);
@@ -1032,13 +1032,12 @@ function buildSeedOrders(cat) {
   const mk = (name, phone, mode, items, readyIn, status, extra = {}) => {
     const o = buildOrder(cat, items, { no: no(), name, phone, mode, readyAt: ceilMin(now + readyIn * MIN), status, payMethod: Math.random() > .5 ? 'card' : 'sbp', demo: true, comment: extra.comment || '' });
     o.createdAt = o.readyAt - 70 * MIN; o.history = { paid: o.createdAt };
-    const flow = ['paid', 'cooking', 'ready', 'delivering', 'placed', 'done'], k = flow.indexOf(status);
-    const t0 = o.readyAt - 40 * MIN;
-    if (status === 'cooking') { o.tasks[0].start = now - 5 * MIN; o.history.cooking = o.tasks[0].start; }
-    if (k >= 2) { o.tasks.forEach(t => { t.start = t0; t.done = t0 + t.dur; }); o.history.cooking = t0; o.pack.done = o.pack.need ? t0 + 22 * MIN : undefined; o.history.ready = o.readyAt - 12 * MIN; o.writtenOff = true; }
-    if (k >= 3) o.history.delivering = o.readyAt - 9 * MIN;
-    if (k >= 4) { o.pickTok = rndTok('P-'); o.history.placed = o.readyAt - 3 * MIN; if (o.cup.need) o.cup.placedAt = o.history.placed; if (o.bag.need && mode === 'gym') { o.bag.cell = extra.cell; o.bag.depositedAt = o.history.placed; } if (mode === 'cafe') o.shelfAt = o.history.placed; }
-    if (k >= 5) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; if (o.cup.need) o.cup.pickedAt = o.history.done; }
+    const flow = ['paid', 'delivering', 'placed', 'done'], k = flow.indexOf(status);
+    raSend(o, o.createdAt + 20e3);
+    if (!extra.fresh) o.ra.printed = o.createdAt + 2 * MIN;           // бегунок уже у кухни; fresh — кассир ещё не напечатал
+    if (k >= 1) o.history.delivering = o.readyAt - 9 * MIN;
+    if (k >= 2) { o.pickTok = rndTok('P-'); o.history.placed = o.readyAt - 3 * MIN; if (o.cup.need) o.cup.placedAt = o.history.placed; if (o.bag.need && mode === 'gym') { o.bag.cell = extra.cell; o.bag.depositedAt = o.history.placed; } if (mode === 'cafe') o.shelfAt = o.history.placed; }
+    if (k >= 3) { o.history.done = o.readyAt + 6 * MIN; if (o.bag.need) o.bag.pickedAt = o.history.done; if (o.cup.need) o.cup.pickedAt = o.history.done; }
     o.email = extra.email != null ? extra.email : emails[ix++ % emails.length];
     const LY = cat.settings.loyalty;
     if (extra.loy === 'welcome') Object.assign(o, { welcome: Math.min(o.total, LY.welcomeCap || o.total), welcomeTtl: LY.ttlDays, welcomeSpend: LY.spendPct });
@@ -1050,11 +1049,11 @@ function buildSeedOrders(cat) {
     return o;
   };
   const list = [
-    mk('Анна', '+7 916 ••• 21 40', 'gym', [['caesar', 1], ['shakeberry', 1]], 55, 'paid', { comment: 'Без гренок', trainer: '101' }),
+    mk('Анна', '+7 916 ••• 21 40', 'gym', [['caesar', 1], ['shakeberry', 1]], 55, 'paid', { comment: 'Без гренок', trainer: '101', fresh: true }),
     mk('Игорь', '+7 903 ••• 77 12', 'gym', [['megabowl', 1], ['gainer', 1]], 22, 'paid'),
     mk('Ксения', '+7 985 ••• 50 03', 'gym', [['cappuccino', 1], ['greensmoothie', 1]], 12, 'paid'),
-    mk('Мария', '+7 925 ••• 10 05', 'cafe', [['bolognese', 1], ['kidcutlets', 1]], 21, 'cooking'),
-    mk('Дмитрий', '+7 999 ••• 45 61', 'gym', [['chickenrice', 1], ['bar', 2], ['americano', 1]], 6, 'ready'),
+    mk('Мария', '+7 925 ••• 10 05', 'cafe', [['bolognese', 1], ['kidcutlets', 1]], 21, 'paid'),
+    mk('Дмитрий', '+7 999 ••• 45 61', 'gym', [['chickenrice', 1], ['bar', 2], ['americano', 1]], 6, 'paid'),
     mk('Елена', '+7 915 ••• 33 18', 'gym', [['salmonbatat', 1], ['mors', 1]], -4, 'placed', { cell: 'B2' }),
     mk('Ольга', '+7 926 ••• 81 93', 'cafe', [['greek', 1], ['cappuccino', 1]], -2, 'placed'),
     mk('Сергей', '+7 901 ••• 62 70', 'gym', [['teriyaki', 1], ['shakebanana', 1]], -45, 'done', { cell: 'C1', trainer: '101' }),
@@ -1077,6 +1076,7 @@ function buildSeedOrders(cat) {
 }
 function buildSeedLockers(orders) {
   const L = { cells: clone(LOCKER_SEED), log: [] };
+  upgradeLockers(L);
   orders.filter(o => o.status === 'placed' && o.bag.cell).forEach(o => { const c = L.cells.find(x => x.id === o.bag.cell); Object.assign(c, { state: 'occupied', orderId: o.id, no: o.no, since: o.bag.depositedAt }); });
   return L;
 }
@@ -1114,10 +1114,10 @@ function seedLocal() { const cat = buildSeedCatalog(); S.catalog = cat; reindex(
 function loadLocal() {
   const cat = LS.get(LS_CAT);
   if (!cat || cat.v !== CAT_V) seedLocal();
-  else { S.catalog = cat; reindex(); S.orders = LS.get(LS_ORD) || {}; S.lockers = LS.get(LS_LOCK) || { cells: clone(LOCKER_SEED), log: [] }; }
+  else { S.catalog = cat; reindex(); S.orders = LS.get(LS_ORD) || {}; Object.values(S.orders).forEach(normalizeOrder); S.lockers = LS.get(LS_LOCK) || { cells: clone(LOCKER_SEED), log: [] }; upgradeLockers(S.lockers); }
 }
 function saveLocal() { LS.set(LS_CAT, S.catalog); LS.set(LS_ORD, S.orders); LS.set(LS_LOCK, S.lockers); if (BC) try { BC.postMessage('sync'); } catch (e) { } }
-function syncFromLocal() { const c = LS.get(LS_CAT); if (!c) return; const before = S.orders; S.catalog = c; reindex(); S.orders = LS.get(LS_ORD) || {}; S.lockers = LS.get(LS_LOCK) || S.lockers; onOrdersChanged(before); render(); }
+function syncFromLocal() { const c = LS.get(LS_CAT); if (!c) return; const before = S.orders; S.catalog = c; reindex(); S.orders = LS.get(LS_ORD) || {}; Object.values(S.orders).forEach(normalizeOrder); S.lockers = LS.get(LS_LOCK) || S.lockers; upgradeLockers(S.lockers); onOrdersChanged(before); render(); }
 
 let DB = null, USER = null, CAN_WRITE = null;
 const writeChains = {};
@@ -1146,6 +1146,7 @@ function upgradeCatalog(c) {
     if (c.settings[k] === undefined) c.settings[k] = clone(v);
     else if (v && typeof v === 'object' && !Array.isArray(v) && c.settings[k] && typeof c.settings[k] === 'object') c.settings[k] = Object.assign(clone(v), c.settings[k]);
   }
+  (c.dishes || []).forEach(d => { if (!d.rc) { const i = DISH_SPEC.findIndex(x => x[0] === d.id); if (i >= 0) d.rc = String(1001 + i); } });   // коды РестАрт
   return c;
 }
 async function initDb() {
@@ -1200,7 +1201,7 @@ async function migrateSharedCatalog() {
 let _ordersPrimed = false;
 const ordersQuery = () => DB.collection('orders').orderBy('readyAt', 'desc').limit(400);
 function applyOrders(qs) {
-  const m = {}; qs.docs.forEach(d => { const o = d.data(); if (o && o.id && o.tasks) m[o.id] = clone(o); });
+  const m = {}; qs.docs.forEach(d => { const o = d.data(); if (o && o.id && o.tasks) m[o.id] = normalizeOrder(clone(o)); });
   const sig = JSON.stringify(m);
   S.sync.at = Date.now(); S.sync.orders = Object.keys(m).length;
   if (sig === applyOrders.sig) return;
@@ -1221,7 +1222,12 @@ function subscribeRest() {
   ordersQuery().onSnapshot(applyOrders, err => { S.sync.error = 'заказы: ' + (err && err.code); S.dbNote = 'Заказы из общей базы не загрузились (' + (err && err.code) + ').'; render(); });
   /* страховка: если живой поток недоступен, платформа обновляет данные раз в ~30 с — подтягиваем заказы сами каждые 8 с */
   setInterval(() => { if (S.mode === 'db' && document.visibilityState === 'visible') ordersQuery().get().then(applyOrders).catch(e => { S.sync.error = 'обновление: ' + ((e && e.code) || 'unknown'); }); }, 8000);
-  DB.doc('shop/lockers').onSnapshot(snap => { if (snap.exists) { S.lockers = clone(snap.data()); _cache = {}; render(); } }, () => { });
+  DB.doc('shop/lockers').onSnapshot(snap => {
+    if (!snap.exists) return;
+    S.lockers = clone(snap.data()); _cache = {};
+    if (upgradeLockers(S.lockers) && !(snap.metadata && snap.metadata.fromCache) && CAN_WRITE !== false) saveLockers();   // 16 одинаковых ячеек
+    render();
+  }, () => { });
 }
 async function writeSeed() {
   const qs = await DB.collection('orders').limit(1000).get();
@@ -1248,29 +1254,9 @@ async function resetDemo() {
   } else { LS.del(LS_MY); _memMy = []; seedLocal(); toast('Демо-данные восстановлены', 'ok'); render(); }
 }
 
-/* ===== Цены, резерв, порции ===== */
+/* ===== Цены и стоп-лист (остатки продуктов ведутся в РестАрт и 1С) ===== */
 const effPrice = d => Math.round(d.price * (1 - (d.discount || 0) / 100));
-function reserved() {
-  return memo('reserved', () => {
-    const r = {};
-    Object.values(S.orders).forEach(o => {
-      if (o.status === 'cancelled' || !o.tasks) return;
-      o.tasks.forEach(t => { if (t.start) return; const it = o.items[t.i], d = DISH[it.d]; if (!d) return; d.recipe.forEach(x => { r[x.ing] = (r[x.ing] || 0) + x.qty * it.q; }); });
-    });
-    return r;
-  });
-}
-const available = id => (ING[id] ? ING[id].stock : 0) - (reserved()[id] || 0);
-function portions(d, extra) {
-  if (!d.recipe.length) return 99;
-  let m = Infinity;
-  d.recipe.forEach(x => { const a = available(x.ing) - ((extra && extra[x.ing]) || 0); m = Math.min(m, Math.floor(a / x.qty + 1e-9)); });
-  return Math.max(0, m === Infinity ? 0 : m);
-}
-function limitingIng(d) { let m = Infinity, lim = null; d.recipe.forEach(x => { const p = available(x.ing) / x.qty; if (p < m) { m = p; lim = x.ing; } }); return lim; }
-const onSale = d => !d.stop && portions(d) > 0;
-const dishCost = d => d.recipe.reduce((s, x) => { const i = ING[x.ing]; return i ? s + unitCost(x.qty, i.unit, i.offers[0].price) : s; }, 0);
-function needFor(items) { const r = {}; Object.entries(items).forEach(([id, q]) => { const d = DISH[id]; if (!d) return; d.recipe.forEach(x => { r[x.ing] = (r[x.ing] || 0) + x.qty * q; }); }); return r; }
+const onSale = d => !d.stop;
 
 /* ===== История продаж и прогноз ===== */
 function histSales(d, date) {
@@ -1281,42 +1267,15 @@ function histSales(d, date) {
   const weeksAgo = (startOfDay(new Date()) - startOfDay(date)) / (7 * 864e5);
   return Math.floor((d.pop || 3) * SCALE * wf * (1 - 0.015 * weeksAgo) * (0.7 + r() * 0.6) + r());
 }
-function forecastDish(d, date) {
-  if (d.stop) return 0;
-  const st = S.catalog.settings; let s = 0;
-  for (let k = 1; k <= 4; k++) s += histSales(d, addDays(date, -7 * k));
-  let f = s / 4 * (1 + (st.growth || 0) / 100);
-  if (st.promo) f *= (d.hit ? 1.3 : 1) * (1 + 1.5 * (d.discount || 0) / 100);
-  return f;
-}
-const dayRemainFrac = () => { const n = new Date(); const h = n.getHours() + n.getMinutes() / 60; return Math.min(1, Math.max(0, (CLOSE_H - h) / (CLOSE_H - OPEN_H))); };
-function ingDemandByDay() {
-  return memo('demand', () => {
-    const today = startOfDay(new Date()), frac = dayRemainFrac(), out = [];
-    for (let k = 0; k < 21; k++) { const date = addDays(today, k), need = {}; S.catalog.dishes.forEach(d => { const f = forecastDish(d, date) * (k === 0 ? frac : 1); if (!f) return; d.recipe.forEach(x => { need[x.ing] = (need[x.ing] || 0) + f * x.qty; }); }); out.push({ date, need }); }
-    return out;
-  });
-}
-function demandBetween(ing, from, to) { const a = startOfDay(from).getTime(), b = startOfDay(to).getTime(); return ingDemandByDay().reduce((s, x) => s + (x.date.getTime() >= a && x.date.getTime() < b ? (x.need[ing] || 0) : 0), 0); }
-function avgDailyNeed(ing) { const days = ingDemandByDay().slice(1, 8); return days.reduce((s, x) => s + (x.need[ing] || 0), 0) / days.length; }
 function firstDeliveryOnOrAfter(sup, date) { let d = startOfDay(date); for (let i = 0; i < 14; i++) { if (sup.days.includes(isoDow(d))) return d; d = addDays(d, 1); } return d; }
 function deliverySchedule(sup, now = new Date()) { const lead = sup.lead + (now.getHours() >= sup.cutoff ? 1 : 0); const next = firstDeliveryOnOrAfter(sup, addDays(startOfDay(now), lead)); return { next, following: firstDeliveryOnOrAfter(sup, addDays(next, 1)) }; }
-function orderedQty(ing) { return S.catalog.pos.filter(p => p.status === 'draft' || p.status === 'sent').reduce((s, p) => s + p.items.filter(i => i.ing === ing).reduce((a, i) => a + i.qty, 0), 0); }
-function planRow(ing, supId) {
-  const sup = SUP[supId] || SUP[ing.offers[0].s]; const { next, following } = deliverySchedule(sup); const today = new Date();
-  const avail = available(ing.id), ordered = orderedQty(ing.id), needToNext = demandBetween(ing.id, today, next), needTotal = demandBetween(ing.id, today, following);
-  let qty = needTotal * (1 + (S.catalog.settings.safety || 0) / 100) - avail - ordered; qty = qty > 0 ? Math.ceil(qty / ing.pack) * ing.pack : 0;
-  const off = ing.offers.find(o => o.s === sup.id) || ing.offers[0];
-  return { ing, sup, next, following, avail, ordered, needToNext, needTotal, qty, price: off.price, sum: unitCost(qty, ing.unit, off.price), risk: avail + ordered < needToNext * 0.999 && needToNext > 0 };
-}
-function defaultSupplier(ing) { const main = ing.offers[0].s, r = planRow(ing, main); if (r.risk) { const alt = ing.offers.find(o => SUP[o.s] && SUP[o.s].backup); if (alt && deliverySchedule(SUP[alt.s]).next < r.next) return alt.s; } return main; }
 
-/* ===== Планировщик кухни ===== */
-const st = () => S.catalog.settings;
+/* ===== Загрузка кухни: только для расчёта ближайшего времени (кухня работает в РестАрт по бегункам) ===== */
+const st = () => (S.catalog && S.catalog.settings) || DEFAULT_SETTINGS;
 function deliverMs(o) { const s = st(); return (o.mode === 'cafe' ? s.deliver.cafe : (o.bag.need ? s.deliver.locker : s.deliver.counter)) * MIN; }
 const packMs = o => o.pack.need ? st().packMin * MIN : 0;
 const deadlineOf = o => o.readyAt - deliverMs(o) - packMs(o);
-const kitchenOrders = () => Object.values(S.orders).filter(o => o.tasks && (o.status === 'paid' || o.status === 'cooking'));
+const kitchenOrders = () => Object.values(S.orders).filter(o => o.tasks && o.status === 'paid');
 function latestFit(busy, latest, dur, now) {
   const cands = [latest, ...busy.map(b => b[0] - dur)].filter(s => s <= latest && s >= now).sort((a, b) => b - a);
   for (const s of cands) if (!busy.some(b => s < b[1] && s + dur > b[0])) return s;
@@ -1332,16 +1291,21 @@ function schedule(extra) {
   const slots = {}; STATIONS.forEach(x => { slots[x.id] = Array.from({ length: Math.max(1, s.stations[x.id] || 1) }, () => []); });
   const plan = {}, pending = [];
   const orders = kitchenOrders().concat(extra ? [extra] : []);
+  /* отметок поваров нет: кухня работает по бегунку, считаем, что она идёт по плану —
+     позиция, которую пора было начать, уже в работе; та, что по плану готова, цех не занимает */
   orders.forEach(o => o.tasks.forEach((t, ix) => {
-    const key = o.id + ':' + ix;
-    if (t.done) return;
-    if (t.start) {
-      const end = Math.max(t.start + t.dur, now + 30e3), sl = slots[t.st] || slots.hot;
-      let si = sl.findIndex(b => !b.some(x => t.start < x[1] && end > x[0])); if (si < 0) si = 0;
-      sl[si].push([t.start, end]); plan[key] = { o, t, ix, start: t.start, end, si, started: true, late: end > deadlineOf(o) + 30e3 };
-      return;
+    const key = o.id + ':' + ix, D = deadlineOf(o);
+    if (o.id !== 'draft') {
+      if (D <= now) return;
+      const s0 = D - t.dur;
+      if (s0 <= now) {
+        const sl = slots[t.st] || slots.hot;
+        let si = sl.findIndex(b => !b.some(x => s0 < x[1] && D > x[0])); if (si < 0) si = 0;
+        sl[si].push([s0, D]); plan[key] = { o, t, ix, start: s0, end: D, si, started: true, late: false };
+        return;
+      }
     }
-    pending.push({ o, t, ix, key, D: deadlineOf(o) });
+    pending.push({ o, t, ix, key, D });
   }));
   pending.sort((a, b) => (b.D - a.D) || (b.t.dur - a.t.dur));
   pending.forEach(p => {
@@ -1355,7 +1319,27 @@ function schedule(extra) {
 }
 const plan = () => memo('plan' + Math.floor(Date.now() / 15000), () => schedule());
 const lateCount = (p, exceptId) => Object.values(p).filter(x => x.late && x.o.id !== exceptId).length;
-function orderFinishAt(o, p) { const ends = o.tasks.map((t, ix) => t.done || (p[o.id + ':' + ix] || {}).end || 0); return Math.max(...ends) + packMs(o) + deliverMs(o); }
+function orderFinishAt(o, p) { const ends = o.tasks.map((t, ix) => (p[o.id + ':' + ix] || {}).end || 0); return Math.max(...ends) + packMs(o) + deliverMs(o); }
+/* когда кухне начать (печатается на бегунке) и до какого момента клиент может отменить */
+const cookStartOf = o => Math.min(...o.tasks.map(t => deadlineOf(o) - t.dur));
+const cancelUntil = o => o.status !== 'paid' ? 0 : Math.max((o.cookStart || cookStartOf(o)) - 5 * MIN, (o.history.paid || o.createdAt) + 3 * MIN);
+/* передача в РестАрт (в демо — сразу): кассир видит заказ и печатает бегунок для кухни */
+function raSend(o, at) { o.ra = { st: 'sent', id: 'RA-' + o.no, at: at || Date.now(), printed: null }; o.cookStart = cookStartOf(o); }
+/* заказы старых версий демо: статусы «готовится» и «готов» стали «на кухне» */
+function normalizeOrder(o) {
+  if (!o || !o.tasks) return o;
+  if (o.status === 'cooking' || o.status === 'ready') o.status = 'paid';
+  if (!o.ra && o.status !== 'cancelled') { o.ra = { st: 'sent', id: 'RA-' + o.no, at: (o.history && o.history.paid) || o.createdAt, printed: (o.history && o.history.paid) || o.createdAt }; }
+  if (!o.cookStart) o.cookStart = cookStartOf(o);
+  return o;
+}
+/* шкаф: 16 одинаковых ячеек (A–D × 1–4); у старых версий демо было 12 разного размера */
+function upgradeLockers(L) {
+  if (!L || !L.cells || (L.cells.length === 16 && L.cells.every(c => c.size === 'L'))) return false;
+  const old = Object.fromEntries(L.cells.map(c => [c.id, c]));
+  L.cells = LOCKER_SEED.map(c => Object.assign({}, c, old[c.id] || {}, { size: 'L' }));
+  return true;
+}
 /* минимальное время готовности корзины */
 function minReadyAt(cart, mode) {
   const ids = Object.keys(cart).filter(id => DISH[id]); if (!ids.length) return null;
@@ -1376,29 +1360,18 @@ function minReadyAt(cart, mode) {
 }
 
 /* ===== Операции ===== */
-function addMove(ing, qty, type, note) { S.catalog.moves.unshift({ id: uid('m'), at: Date.now(), ing, qty, type, note }); if (S.catalog.moves.length > 200) S.catalog.moves.length = 200; }
-function writeOffItems(items, type, note) {
-  items.forEach(it => { const d = DISH[it.d]; if (!d) return; d.recipe.forEach(x => { const i = ING[x.ing]; if (!i) return; i.stock = Math.max(0, +(i.stock - x.qty * it.q).toFixed(2)); addMove(x.ing, -x.qty * it.q, type, note); }); });
-}
 function mark(o, status) { o.status = status; o.history = o.history || {}; o.history[status] = Date.now(); if (status === 'done') fiscalOnDone(o); }
-function refreshStatus(o) {
-  if (o.status === 'cancelled' || o.status === 'done') return;
-  const allDone = o.tasks.every(t => t.done), anyStart = o.tasks.some(t => t.start);
-  if (o.status === 'paid' && anyStart) mark(o, 'cooking');
-  if ((o.status === 'paid' || o.status === 'cooking') && allDone && (!o.pack.need || o.pack.done)) mark(o, 'ready');
+function cancelOrder(oid) {
+  const o = clone(S.orders[oid]); if (o.status !== 'paid' || Date.now() > cancelUntil(o)) return false;
+  mark(o, 'cancelled'); fiscalOnCancel(o);
+  if (o.ra) o.ra.st = 'cancelled';                                  // отмена ушла в РестАрт — кассир видит «не готовить»
+  saveOrder(o); return true;
 }
-function taskStart(oid, ix) {
-  const o = clone(S.orders[oid]); const t = o.tasks[ix]; if (!t || t.start) return;
-  t.start = Date.now(); const it = o.items[t.i];
-  writeOffItems([{ d: it.d, q: it.q }], 'order', 'Заказ №' + o.no); saveCatalog();
-  refreshStatus(o); saveOrder(o);
-}
-function taskDone(oid, ix) { const o = clone(S.orders[oid]); const t = o.tasks[ix]; if (!t) return; if (!t.start) t.start = Date.now(); t.done = Date.now(); refreshStatus(o); saveOrder(o); }
-function packDone(oid) { const o = clone(S.orders[oid]); o.pack.done = Date.now(); refreshStatus(o); saveOrder(o); }
-function cancelOrder(oid) { const o = clone(S.orders[oid]); if (o.tasks.some(t => t.start)) return false; mark(o, 'cancelled'); fiscalOnCancel(o); saveOrder(o); return true; }
+/* кассир напечатал бегунок и отнёс на кухню (в жизни — в РестАрт) */
+function raPrinted(oid) { const o = clone(S.orders[oid]); if (!o.ra) return; o.ra.printed = Date.now(); saveOrder(o); }
 function newOrderNo() { const used = new Set(Object.values(S.orders).filter(o => sameDay(o.createdAt, Date.now())).map(o => o.no)); let n; do { n = String(100 + Math.floor(Math.random() * 900)); } while (used.has(n)); return n; }
 function allPlaced(o) { if (o.mode === 'cafe') return !!o.shelfAt; return (!o.cup.need || o.cup.placedAt) && (!o.bag.need || o.bag.depositedAt); }
-function takeOrder(oid) { const o0 = S.orders[oid]; if (!o0 || o0.status !== 'ready') return null; let cell = null; if (o0.mode === 'gym' && o0.bag.need) { cell = allocateCell(oid); if (!cell) { toast('Нет свободных ячеек подходящего размера', 'warn'); return null; } } const o = clone(S.orders[oid]); mark(o, 'delivering'); saveOrder(o); return cell; }
+function takeOrder(oid) { const o0 = S.orders[oid]; if (!o0 || o0.status !== 'paid' || o0.mode !== 'gym') return null; let cell = null; if (o0.bag.need) { cell = allocateCell(oid); if (!cell) { toast('Нет свободных ячеек — освободите ячейку или подождите', 'warn'); return null; } } const o = clone(S.orders[oid]); mark(o, 'delivering'); saveOrder(o); return cell; }
 function shelfPlace(oid) { const o = clone(S.orders[oid]); o.shelfAt = Date.now(); o.pickTok = rndTok('P-'); if (o.cup.need) o.cup.placedAt = o.shelfAt; mark(o, 'placed'); saveOrder(o); }
 function cafeHandOver(oid) { const o = clone(S.orders[oid]); const t = Date.now(); if (o.bag.need) o.bag.pickedAt = t; if (o.cup.need) o.cup.pickedAt = t; o.pickedBy = 'staff'; mark(o, 'done'); saveOrder(o); }
 
@@ -1495,8 +1468,7 @@ function notifyMyOrders(before) {
     if (o.cup.placedAt && !b.cup.placedAt && o.mode === 'gym') { toast(`Заказ №${o.no} доставлен на стойку ресепшена — заберите стакан с номером №${o.no}`, 'ok', 9000); openId = openId || o.id; }
     if (o.shelfAt && !b.shelfAt) { toast(`Заказ №${o.no} ждёт вас на стойке кафе`, 'ok', 8000); openId = openId || o.id; }
     if (b.status !== o.status) {
-      if (o.status === 'cooking') toast(`Заказ №${o.no}: начали готовить`, 'info');
-      else if (o.status === 'delivering') toast(`Заказ №${o.no}: официант несёт наверх`, 'info');
+      if (o.status === 'delivering') toast(`Заказ №${o.no}: официант несёт наверх`, 'info');
     }
   });
   // показываем страницу заказа в момент доставки, если клиент не занят другим окном
@@ -2029,7 +2001,7 @@ const UI = {
   app: 'client', view: 'menu', goal: 'all', type: 'all', q: '', sort: 'pop',
   cart: {}, drawer: null, modal: null, lastOrder: null, payErr: '',
   co: { mode: 'gym', when: 'asap', time: '', name: '', phone: '', email: '', card: '', comment: '', trainer: '', rcTo: 'pdf', rcChosen: false, no: '', pay: null, bank: null, num: '2200 1234 5678 9019', exp: '12/28', cvc: '123' },
-  sub: 'all', kSt: 'all', wTab: 'up', lockMsg: null, pickConfirm: null, loginPhone: '', otp: null, otpCode: '', otpErr: '', stName: '', stPhone: '', stRole: 'Тренер', lockIn: '', cafeNo: '',
+  sub: 'all', caTab: 'new', wTab: 'up', lockMsg: null, pickConfirm: null, loginPhone: '', otp: null, otpCode: '', otpErr: '', stName: '', stPhone: '', stRole: 'Тренер', lockIn: '', cafeNo: '',
   mq: '', mGoal: 'all', mType: 'all', sq: '', sCat: 'all', sStatus: 'all', pAll: false, pChoice: {}, editDish: null, mView: 'admin-menu',
 };
 const ICON = {
@@ -2043,10 +2015,10 @@ const ICON = {
 const cartCount = () => Object.values(UI.cart).reduce((s, q) => s + q, 0);
 const cartSum = () => Object.entries(UI.cart).reduce((s, [id, q]) => s + (DISH[id] ? effPrice(DISH[id]) * q : 0), 0);
 const cartFull = () => Object.entries(UI.cart).reduce((s, [id, q]) => s + (DISH[id] ? DISH[id].price * q : 0), 0);
-function canAddMore(d) { return !d.stop && portions(d, needFor(UI.cart)) >= 1; }
+function canAddMore(d) { return !d.stop && (UI.cart[d.id] || 0) < 20; }
 function cartAdd(id, n = 1) {
   const d = DISH[id]; if (!d) return;
-  if (n > 0 && !canAddMore(d)) { toast('Больше нет в наличии: ' + d.name, 'warn'); return; }
+  if (n > 0 && !canAddMore(d)) { toast(d.stop ? 'Сейчас нет в наличии: ' + d.name : 'Не больше 20 порций одного блюда', 'warn'); return; }
   const q = (UI.cart[id] || 0) + n; if (q <= 0) delete UI.cart[id]; else UI.cart[id] = q; render();
 }
 /* мои заказы — только сделанные с этого устройства: номер телефона без кода не доказывает, что это вы,
@@ -2070,7 +2042,7 @@ function drinkGroups(ds) {
 }
 const goalColor = d => (GOAL[d.goals[0]] || { color: '#8a9a90' }).color;
 function dishCard(d) {
-  const left = portions(d), inCart = UI.cart[d.id] || 0, sold = (d.stop || left === 0) && !inCart, price = effPrice(d);
+  const inCart = UI.cart[d.id] || 0, sold = d.stop && !inCart, price = effPrice(d);
   const btn = inCart
     ? `<div class="stepper"><button data-act="minus" data-id="${d.id}" aria-label="Убрать">−</button><span>${inCart}</span><button data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'} aria-label="Добавить">+</button></div>`
     : `<button class="add" data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'} aria-label="В корзину">+</button>`;
@@ -2081,7 +2053,7 @@ function dishCard(d) {
     <div class="body"><div class="nm">${esc(d.name)}</div>
       <div class="meta">${esc(d.weight)}${d.serves > 1 ? ' · на ' + d.serves + ' перс.' : ''} · ${d.cook} мин</div>
       <div class="macros"><span><b>Б</b>${d.p}</span><span><b>Ж</b>${d.f}</span><span><b>У</b>${d.c}</span></div>
-      <div class="foot"><div><div class="price">${fmtRub(price)}</div>${d.discount ? `<div class="old">${fmtRub(d.price)}</div>` : ''}${!sold && left <= 5 ? `<div class="left">Осталось ${left}</div>` : ''}</div>${btn}</div>
+      <div class="foot"><div><div class="price">${fmtRub(price)}</div>${d.discount ? `<div class="old">${fmtRub(d.price)}</div>` : ''}</div>${btn}</div>
     </div></article>`;
 }
 
@@ -2158,13 +2130,13 @@ function clientStatus(o) {
     return o.status === 'delivering' ? 'Несём наверх' : 'Ждёт клиента';
   }
   if (o.status === 'placed') return 'На стойке кафе';
-  if (o.status === 'ready') return o.mode === 'cafe' ? 'Готов' : 'Готов, несём';
+  if (o.status === 'paid') return 'Готовим';
   return STATUS[o.status].short;
 }
 
 function dishModal(d) {
-  const left = portions(d), inCart = UI.cart[d.id] || 0;
-  const ings = d.recipe.map(x => ING[x.ing] ? ING[x.ing].name.replace(/\s*\(.*\)/, '').toLowerCase() : '').filter(Boolean);
+  const inCart = UI.cart[d.id] || 0;
+  const ings = (d.recipe || []).map(x => ING[x.ing] ? ING[x.ing].name.replace(/\s*\(.*\)/, '').toLowerCase() : '').filter(Boolean);
   return `<div class="overlay" data-act="close-modal"><div class="modal">
     <div class="mh"><h3>${esc(d.name)}</h3><button class="x" data-act="close-modal">×</button></div>
     <div class="mb"><div class="dm-top"><div class="dm-pic" style="--gc:${goalColor(d)}">${d.emoji}</div><div>
@@ -2172,9 +2144,9 @@ function dishModal(d) {
       <p>${esc(d.desc)}</p>
       <div class="kbju"><div><b>${d.kcal}</b><span>ккал</span></div><div><b>${d.p} г</b><span>белки</span></div><div><b>${d.f} г</b><span>жиры</span></div><div><b>${d.c} г</b><span>углеводы</span></div></div>
       <div class="small muted">Выход ${esc(d.weight)}${d.serves > 1 ? ' · на ' + d.serves + ' персоны, КБЖУ на 1 порцию' : ''} · ${STATION[d.station].name.toLowerCase()}, ${d.cook} мин${d.station === 'bar' ? ' · подаём в стакане с номером заказа' : ''}</div>
-      <div class="small" style="margin-top:8px"><b>Состав:</b> ${esc(ings.join(', '))}</div>
+      ${ings.length ? `<div class="small" style="margin-top:8px"><b>Состав:</b> ${esc(ings.join(', '))}</div>` : ''}
       <div class="row" style="margin-top:16px"><div><div class="price">${fmtRub(effPrice(d))}</div>${d.discount ? `<div class="old">${fmtRub(d.price)}</div>` : ''}</div><span class="spacer"></span>
-        ${d.stop || left === 0 ? '<span class="st out">Закончилось</span>' : (left <= 5 ? `<span class="left">Осталось ${left}</span>` : '')}
+        ${d.stop ? '<span class="st out">Закончилось</span>' : ''}
         ${inCart ? `<div class="stepper"><button data-act="minus" data-id="${d.id}">−</button><span>${inCart}</span><button data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'}>+</button></div>` : `<button class="btn primary" data-act="plus" data-id="${d.id}" ${canAddMore(d) ? '' : 'disabled'}>В корзину</button>`}
       </div></div></div></div></div></div>`;
 }
@@ -2287,9 +2259,8 @@ function cardError() {
   return '';
 }
 function placeOrder() {
-  const need = needFor(UI.cart);
-  const short = Object.entries(need).filter(([ing, q]) => available(ing) < q - 1e-9);
-  if (short.length) { const dishes = Object.keys(UI.cart).filter(id => DISH[id].recipe.some(x => short.some(([i]) => i === x.ing))); UI.drawer = 'cart'; render(); toast('Пока вы оформляли, закончилось: ' + dishes.map(id => DISH[id].name).join(', '), 'warn', 6000); return; }
+  const stopped = Object.keys(UI.cart).filter(id => DISH[id] && DISH[id].stop);
+  if (stopped.length) { UI.drawer = 'cart'; render(); toast('Пока вы оформляли, закончилось: ' + stopped.map(id => DISH[id].name).join(', '), 'warn', 6000); return; }
   const tm = coTimes(), lc = coCalc(), L = lset();
   const email = UI.co.rcTo === 'email' ? UI.co.email.trim() : '';
   const o = buildOrder(S.catalog, Object.entries(UI.cart), { no: UI.co.no || newOrderNo(), name: UI.co.name.trim(), phone: UI.co.phone.trim(), email, card: UI.co.card.trim(), comment: UI.co.comment.trim(), mode: UI.co.mode, payMethod: UI.co.pay, readyAt: tm.t, minAt: tm.min });
@@ -2297,7 +2268,7 @@ function placeOrder() {
   const tr = orderTrainerFor(lc.pay); if (tr) o.trainer = tr;
   if (lc.welcome) Object.assign(o, { welcomeTtl: L.ttlDays, welcomeSpend: L.spendPct });
   o.rcTo = email ? 'email' : 'pdf';
-  fiscalOnPaid(o); saveOrder(o); addMyOrder(o.id);
+  fiscalOnPaid(o); raSend(o); saveOrder(o); addMyOrder(o.id);          // оплачен → чек облачной кассы и заказ в РестАрт
   setSession(coKey()); rememberPhone(coKey());
   UI.cart = {}; UI.co.no = ''; UI.lastOrder = o.id; UI.drawer = 'success'; render();
 }
@@ -2343,14 +2314,14 @@ function orderCardBody(o, fresh) {
     ${orderLoyaltyRows(o)}<div class="sum-row total"><span>${o.status === 'cancelled' ? 'Возвращено' : 'Оплачено'} ${o.payMethod === 'sbp' ? 'по СБП' : 'картой'}</span><span>${fmtRub(paidOf(o))}</span></div>${orderWelcomeNote(o)}`;
 }
 function trackModal(o) {
-  const steps = o.mode === 'cafe' ? [['paid', 'Принят'], ['cooking', 'Готовится'], ['ready', 'Готов'], ['placed', 'На стойке кафе'], ['done', 'Получен']]
-    : [['paid', 'Принят'], ['cooking', 'Готовится'], ['ready', 'Готов'], ['delivering', 'Официант несёт наверх'], ['placed', o.bag.need && o.cup.need ? 'В ячейке и на стойке' : o.bag.need ? 'В ячейке' + (o.bag.cell ? ' ' + o.bag.cell : '') : 'На стойке ресепшена'], ['done', 'Получен']];
+  const steps = o.mode === 'cafe' ? [['paid', 'Принят, готовим к ' + fmtTime(o.readyAt)], ['placed', 'На стойке кафе'], ['done', 'Получен']]
+    : [['paid', 'Принят, готовим к ' + fmtTime(o.readyAt)], ['delivering', 'Официант несёт наверх'], ['placed', o.bag.need && o.cup.need ? 'В ячейке и на стойке' : o.bag.need ? 'В ячейке' + (o.bag.cell ? ' ' + o.bag.cell : '') : 'На стойке ресепшена'], ['done', 'Получен']];
   const order = steps.map(s => s[0]); let idx = order.indexOf(o.status); if (idx < 0) idx = 0;
   return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(560px,100%)">
     <div class="mh"><h3>Заказ №${o.no}</h3><button class="x" data-act="close-modal">×</button></div>
     <div class="mb">${o.status === 'cancelled' ? '<div class="note red">Заказ отменён, деньги вернутся на карту в течение нескольких минут.</div>' : `<div class="track hz">${steps.map(([k, t], i) => `<div class="tstep ${i <= idx ? 'done' : ''} ${i === idx && k !== 'done' ? 'cur' : ''}"><div class="c">${i <= idx ? '✓' : i + 1}</div><div><div class="t">${t}</div><div class="w">${o.history && o.history[k] ? fmtTime(o.history[k]) : ''}</div></div></div>`).join('')}</div>`}
       ${orderCardBody(o, false)}</div>
-    <div class="mf">${o.status === 'paid' && !o.tasks.some(t => t.start) ? `<button class="btn danger" data-act="cancel-order" data-id="${o.id}">Отменить заказ</button>` : ''}<span class="spacer"></span><button class="btn" data-act="close-modal">Закрыть</button></div>
+    <div class="mf">${o.status === 'paid' && Date.now() < cancelUntil(o) ? `<button class="btn danger" data-act="cancel-order" data-id="${o.id}" title="Можно до ${fmtTime(cancelUntil(o))}">Отменить заказ</button>` : ''}<span class="spacer"></span><button class="btn" data-act="close-modal">Закрыть</button></div>
   </div></div>`;
 }
 function myOrdersModal() {
@@ -2371,76 +2342,59 @@ function staffHead(title, sub, tabs, active, act) {
 const whereLabel = o => o.mode === 'cafe' ? 'кафе' : o.bag.need ? (o.cup.need ? 'ячейка + стойка' : 'ячейка') : 'стойка ресепшена';
 const mm = ms => Math.round(ms / MIN);
 
-/* ===== Кухня ===== */
-function kitchenTabs() {
-  const p = plan(), now = Date.now();
-  const due = st => Object.values(p).filter(x => !x.started && x.start <= now + MIN && (st === 'all' || x.t.st === st)).length;
-  const packN = kitchenPackList().length;
-  return [['all', 'Все цеха', due('all')], ...STATIONS.map(s => [s.id, s.name, due(s.id)]), ['pack', 'Упаковка', packN]];
+/* ===== Касса РестАрт (имитация) =====
+   В жизни кассир работает в РестАрт: заказ с сайта приходит туда сам (тип «Сайт», оплата «Оплачено на сайте» —
+   нефискальная, чек уже пробила облачная касса сайта). Кассир печатает бегунок и несёт на кухню. */
+const raOrders = () => Object.values(S.orders).filter(o => o.ra && sameDay(o.ra.at || o.createdAt, Date.now())).sort((a, b) => (a.cookStart || a.readyAt) - (b.cookStart || b.readyAt));
+function cashierHead() {
+  const n = raOrders().filter(o => o.status === 'paid' && !o.ra.printed).length;
+  return staffHead('Касса · РестАрт', 'имитация: заказы с сайта приходят в кассу кафе', [['new', 'Новые', n], ['all', 'Все за день', 0]], UI.caTab, 'ca-tab');
 }
-function kitchenPackList() { return Object.values(S.orders).filter(o => o.tasks && (o.status === 'cooking' || o.status === 'paid') && o.pack.need && !o.pack.done && o.tasks.filter(t => !o.items[t.i].drink).every(t => t.done)); }
-function kitchenHead() { return staffHead('Кухня', 'задачи от планировщика', kitchenTabs(), UI.kSt, 'k-st'); }
-function ganttSVG(p) {
-  const now = Date.now(), from = now - 10 * MIN, to = now + 60 * MIN, W = 1000, L = 110, R = 10, rowH = 26, top = 24;
-  const rows = []; STATIONS.forEach(s => { for (let i = 0; i < (st().stations[s.id] || 1); i++) rows.push({ s, i }); });
-  const H = top + rows.length * rowH + 8, X = t => L + (Math.max(from, Math.min(to, t)) - from) / (to - from) * (W - L - R);
-  let g = '';
-  for (let m = 0; m <= 70; m += 10) { const t = from + m * MIN, x = X(t); g += `<line x1="${x}" x2="${x}" y1="${top - 4}" y2="${H - 6}" stroke="#ece8df"/><text x="${x}" y="14" font-size="11" text-anchor="middle" fill="#7a817c">${fmtTime(t)}</text>`; }
-  rows.forEach((r, k) => { const y = top + k * rowH; g += `<rect x="0" y="${y}" width="${W}" height="${rowH}" fill="${k % 2 ? '#fbfaf7' : '#fff'}"/><text x="8" y="${y + 17}" font-size="12" font-weight="700" fill="${r.s.color}">${r.s.short}${(st().stations[r.s.id] || 1) > 1 ? ' ' + (r.i + 1) : ''}</text>`; });
-  Object.values(p).forEach(x => {
-    const k = rows.findIndex(r => r.s.id === x.t.st && r.i === x.si); if (k < 0 || x.end < from || x.start > to) return;
-    const y = top + k * rowH + 3, x1 = X(x.start), x2 = Math.max(X(x.end), x1 + 3), w = x2 - x1;
-    const fill = x.late ? '#e3463a' : x.started ? '#e8743b' : '#1d6b45', it = x.o.items[x.t.i];
-    const label = `№${x.o.no} ${it.n}`; const chars = Math.floor((w - 6) / 6.3);
-    g += `<g><rect x="${x1}" y="${y}" width="${w}" height="${rowH - 6}" rx="4" fill="${fill}" fill-opacity="${x.started ? 1 : .85}"><title>№${x.o.no} · ${esc(it.n)} ×${it.q} · ${fmtTime(x.start)}–${fmtTime(x.end)}${x.late ? ' · опаздываем' : ''}</title></rect>${chars > 3 ? `<text x="${x1 + 4}" y="${y + 14}" font-size="11" fill="#fff" pointer-events="none">${esc(label.length > chars ? label.slice(0, chars - 1) + '…' : label)}</text>` : ''}</g>`;
-  });
-  g += `<line x1="${X(now)}" x2="${X(now)}" y1="${top - 6}" y2="${H - 4}" stroke="#17201b" stroke-width="2"/><text x="${X(now) + 4}" y="${H - 8}" font-size="11" font-weight="700" fill="#17201b">сейчас</text>`;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Загрузка цехов на час вперёд">${g}</svg>`;
+function runnerText(o) {
+  const where = o.mode === 'cafe' ? 'КАФЕ — полка выдачи' : (o.bag.need ? 'НАВЕРХ — ячейка шкафа' + (o.cup.need ? ' + напиток на стойку' : '') : 'НАВЕРХ — напиток на стойку');
+  const line = '-'.repeat(32);
+  return [`САЙТ №${o.no}        ${fmtTime(o.ra.at)}`, line, `К ${fmtTime(o.readyAt)}   начать не позже ${fmtTime(o.cookStart || o.readyAt)}`, where, line,
+    ...o.items.map(i => `${String(i.q).padStart(2)} × ${i.n}${i.drink ? ' (бар)' : ''}`), line,
+    ...(o.comment ? ['! ' + o.comment, line] : []), `Гость: ${o.name || '—'}`, `ОПЛАЧЕНО НА САЙТЕ: ${fmtRub(paidOf(o))}`, 'Номер на пакете и стакане: №' + o.no].join('\n');
 }
-function taskCard(x) {
-  const now = Date.now(), o = x.o, it = o.items[x.t.i], D = deadlineOf(o);
-  const toStart = mm(x.start - now), lateBy = mm(x.end - D);
-  return `<div class="tk ${x.late ? 'late' : ''} ${x.started ? 's-cooking' : x.start <= now + MIN ? 's-due' : 's-paid'}" style="border-left-color:${x.late ? 'var(--red)' : STATION[x.t.st].color}">
-    <div class="top"><span class="cd">№${o.no}</span><span class="who">${it.e} ${esc(it.n)}</span><span class="spacer"></span><b>×${it.q}</b></div>
-    <div class="tm">${x.started ? `Готовится с ${fmtTime(x.t.start)} · готово к <b>${fmtTime(x.end)}</b>` : `Старт <b>${fmtTime(x.start)}</b> ${toStart > 0 ? '· через ' + toStart + ' мин' : toStart < -1 ? '· <span class="bad">просрочен на ' + -toStart + ' мин</span>' : '· сейчас'} → готово ${fmtTime(x.end)}`}<br>
-      <span class="tiny">${STATION[x.t.st].short} · ${it.drink ? 'стакан' : 'в пакет'} → ${whereLabel(o)} к ${fmtTime(o.readyAt)}${x.late ? ` · <span class="bad">опоздание ${lateBy} мин</span>` : ''}</span></div>
-    ${o.comment ? `<div class="cm">💬 ${esc(o.comment)}</div>` : ''}
-    <div class="acts">${x.started ? `<button class="btn primary kbtn done" data-act="t-done" data-id="${o.id}" data-i="${x.ix}" ${(KDS_HOLD[o.id + ':' + x.ix] || 0) > Date.now() ? 'disabled' : ''}>✓ Готово</button>` : `<button class="btn kbtn ${x.start <= now + MIN ? 'primary' : ''}" data-act="t-start" data-id="${o.id}" data-i="${x.ix}">${x.start <= now + MIN ? '▶ Начать' : 'Начать раньше'}</button>`}</div></div>`;
+function cashierCard(o) {
+  const cancelled = o.status === 'cancelled', printed = !!o.ra.printed, late = !printed && (o.cookStart || o.readyAt) < Date.now() + 5 * MIN;
+  return `<div class="wcard ${cancelled ? 'late' : ''}"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span>
+      ${cancelled ? '<span class="st red">ОТМЕНЁН</span>' : `<span class="st ${late ? 'red' : 'blue'}">к ${fmtTime(o.readyAt)} · начать ${fmtTime(o.cookStart || o.readyAt)}</span>`}</div>
+    <div class="tiny muted" style="margin:4px 0">${whereLabel(o)} · ${o.items.map(i => i.q + '× ' + esc(i.n) + ' <span class="code-token">[' + ((DISH[i.d] && DISH[i.d].rc) || '—') + ']</span>').join(', ')} · оплачено на сайте ${fmtRub(paidOf(o))}</div>
+    ${o.comment ? `<div class="tiny">💬 ${esc(o.comment)}</div>` : ''}
+    ${cancelled ? `<div class="note red" style="margin-top:6px">Клиент отменил заказ${printed ? ' — бегунок уже на кухне: скажите поварам, чтобы не готовили' : ''}.</div>`
+      : printed ? `<div class="row" style="margin-top:6px"><span class="tiny muted">🧾 Бегунок отдан на кухню в ${fmtTime(o.ra.printed)}</span><span class="spacer"></span><button class="btn sm ghost" data-act="ca-runner" data-id="${o.id}">Бегунок</button></div>`
+      : `<button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="ca-runner" data-id="${o.id}">🧾 Напечатать бегунок для кухни</button>`}</div>`;
 }
-function kitchenMain() {
-  const p = plan(), now = Date.now(), f = UI.kSt;
-  const all = Object.values(p).filter(x => f === 'all' || f === 'pack' || x.t.st === f).sort((a, b) => a.start - b.start);
-  const nowL = all.filter(x => !x.started && x.start <= now + MIN), work = all.filter(x => x.started), next = all.filter(x => !x.started && x.start > now + MIN && x.start <= now + 45 * MIN);
-  const laterL = all.filter(x => !x.started && x.start > now + 45 * MIN);
-  const shown = new Set([...nowL, ...work, ...next].map(x => x.o.id));
-  const laterOrders = [...new Map(laterL.filter(x => !shown.has(x.o.id)).map(x => [x.o.id, x])).values()];      // по заказу — самая ранняя задача
-  const packs = kitchenPackList();
-  const col = (t, list, hint) => `<div class="col"><h4>${t}<span class="n">${list.length}</span></h4>${list.map(taskCard).join('') || `<div class="tiny muted" style="padding:6px">${hint}</div>`}</div>`;
-  const packCol = `<div class="col"><h4>Упаковка<span class="n">${packs.length}</span></h4>${packs.map(o => `<div class="tk s-packed"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">к ${fmtTime(o.readyAt)}</span></div><div class="tm">Напишите <b>№${o.no}</b> на пакете · ${o.mode === 'cafe' ? 'выдача в кафе' : 'ячейка ' + bagSize(o)}</div><ul>${o.items.filter(i => !i.drink).map(i => `<li><span class="q">${i.q}×</span><span>${i.e} ${esc(i.n)}</span></li>`).join('')}</ul><div class="acts"><button class="btn lime kbtn" data-act="t-pack" data-id="${o.id}">✓ Упакован, №${o.no} на пакете</button></div></div>`).join('') || '<div class="tiny muted" style="padding:6px">Нечего упаковывать</div>'}</div>`;
-  const lateN = Object.values(p).filter(x => x.late).length;
-  return `<div class="awrap">${S.mode !== 'db' && S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)} Заказы с других устройств здесь не появятся.</div>` : ''}
-    <div class="ah"><h2>${f === 'all' ? 'Все цеха' : f === 'pack' ? 'Упаковка' : STATION[f].name}</h2><span class="muted">планировщик ставит старт так, чтобы заказ был в точке выдачи к времени клиента; план пересчитывается при каждом событии</span></div>
-    <div class="panel"><div class="row"><h3 style="margin:0">Загрузка цехов на час вперёд</h3><span class="spacer"></span><div class="legend"><span><i style="background:#1d6b45"></i>запланировано</span><span><i style="background:#e8743b"></i>готовится</span><span><i style="background:#e3463a"></i>опаздываем</span></div></div>${ganttSVG(p)}
-      ${lateN ? `<div class="note red" style="margin-top:8px">Опаздываем по ${lateN} ${plural(lateN, 'задаче', 'задачам', 'задачам')}: в цехе не хватает мест. Клиентам с опозданием сайт покажет новое время.</div>` : ''}</div>
-    ${f === 'pack' ? `<div class="cols" style="grid-template-columns:1fr">${packCol}</div>` : `<div class="cols">${col('Сейчас', nowL, 'Нечего начинать')}${col('В работе', work, 'Плита свободна')}${col('Далее · 45 мин', next, 'Пусто')}${packCol}</div>`}
-    ${laterOrders.length ? `<div class="panel later"><h3>Позже · ${laterOrders.length} ${plural(laterOrders.length, 'заказ', 'заказа', 'заказов')}</h3><div class="tiny muted" style="margin:-4px 0 8px">Оплачены, но готовить ещё рано — заказ появится в колонке «Сейчас» к своему времени старта.</div>
-      <div class="laterlist">${laterOrders.map(x => `<span class="li"><b>№${x.o.no}</b> ${esc(x.o.items.map(i => i.n).join(', ').slice(0, 60))} · старт ${sameDay(x.start, now) ? '' : 'завтра '}<b>${fmtTime(x.start)}</b></span>`).join('')}</div></div>` : ''}
-  </div>`;
+function cashierMain() {
+  const all = raOrders(), list = UI.caTab === 'new' ? all.filter(o => (o.status === 'paid' && !o.ra.printed) || (o.status === 'cancelled' && o.ra.printed && o.history.cancelled > Date.now() - 60 * MIN)) : all;
+  return `<div class="wwrap">${S.mode !== 'db' && S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)}</div>` : ''}
+    <div class="note" style="margin-bottom:12px">Это имитация экрана РестАрт. В жизни оплаченный заказ с сайта сам появляется в кассе с типом «Сайт» и оплатой «Оплачено на сайте» — без второго фискального чека. Кассир печатает бегунок и несёт на кухню.</div>
+    <div class="wsec"><h3>${UI.caTab === 'new' ? 'Напечатать и отнести на кухню' : 'Заказы с сайта за день'} · ${list.length}</h3>${list.map(cashierCard).join('') || '<div class="muted small">Новых заказов нет. Оформите заказ на сайте клиента — он появится здесь сразу после оплаты.</div>'}</div></div>`;
+}
+function runnerModal(o) {
+  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(420px,100%)">
+    <div class="mh"><h3>Бегунок №${o.no}</h3><button class="x" data-act="close-modal">×</button></div>
+    <div class="mb"><pre class="runner">${esc(runnerText(o))}</pre><div class="tiny muted">В РестАрт бегунок печатается на кухонном принтере (место печати — по цеху блюда).</div></div>
+    <div class="mf"><span class="spacer"></span><button class="btn" data-act="close-modal">Закрыть</button>${o.ra.printed ? '' : `<button class="btn primary" data-act="ca-print" data-id="${o.id}">Напечатан, отнёс на кухню</button>`}</div>
+  </div></div>`;
 }
 
 /* ===== Официант ===== */
 function waiterHead() {
-  const up = Object.values(S.orders).filter(o => o.mode === 'gym' && (o.status === 'ready' || o.status === 'delivering')).length;
-  const cafe = Object.values(S.orders).filter(o => o.mode === 'cafe' && (o.status === 'ready' || o.status === 'placed')).length;
-  return staffHead('Официант', 'доставка наверх и выдача в кафе', [['up', 'Наверх', up], ['cafe', 'Кафе', cafe], ['cells', 'Шкаф', 0]], UI.wTab, 'w-tab');
+  const up = Object.values(S.orders).filter(o => o.mode === 'gym' && (o.status === 'paid' || o.status === 'delivering')).length;
+  const cafe = Object.values(S.orders).filter(o => o.mode === 'cafe' && (o.status === 'paid' || o.status === 'placed')).length;
+  return staffHead('Официант', 'забрать с кухни, отнести наверх, выдать в кафе', [['up', 'Наверх', up], ['cafe', 'Кафе', cafe], ['cells', 'Шкаф', 0]], UI.wTab, 'w-tab');
 }
 function partRow(icon, title, sub, btn) { return `<div class="wpart"><span class="wi">${icon}</span><div style="flex:1"><b>${title}</b><div class="tiny muted">${sub}</div></div>${btn || ''}</div>`; }
 function waiterCard(o) {
   const now = Date.now(), toT = mm(o.readyAt - now);
   let parts = '';
-  if (o.status === 'ready') {
+  if (o.status === 'paid') {
+    parts += raLine(o);
     if (o.cup.need) parts += partRow('🥤', `Подпишите стакан: №${o.no}`, o.items.filter(i => i.drink).map(i => i.q + '× ' + i.n).join(', ') + ' → стойка ресепшена');
-    if (o.bag.need) parts += partRow('📦', `Пакет №${o.no}`, o.items.filter(i => !i.drink).map(i => i.q + '× ' + i.n).join(', ') + ' → ячейка ' + bagSize(o));
+    if (o.bag.need) parts += partRow('📦', `Пакет №${o.no}`, o.items.filter(i => !i.drink).map(i => i.q + '× ' + i.n).join(', ') + ' → ячейка шкафа');
   } else {
     const c = o.bag.cell && S.lockers.cells.find(x => x.id === o.bag.cell);
     if (o.bag.need) {
@@ -2453,23 +2407,30 @@ function waiterCard(o) {
       : `<div class="wpart wcol"><div class="row"><span class="wi">🥤</span><div style="flex:1"><b>Стакан №${o.no} → стойка ресепшена</b><div class="tiny muted">${o.items.filter(i => i.drink).map(i => i.q + '× ' + i.n).join(', ')} · поставьте на стойку номером к залу</div></div></div><button class="btn primary wbtn" data-act="w-cup" data-id="${o.id}">🥤 Заказ доставлен на стойку</button></div>`;
   }
   return `<div class="wcard ${toT < 0 && o.status !== 'placed' ? 'late' : ''}"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="st ${toT < 0 ? 'red' : 'blue'}">к ${fmtTime(o.readyAt)}${toT >= 0 ? ' · ' + toT + ' мин' : ''}</span></div>${parts}
-    ${o.status === 'ready' ? `<button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-take" data-id="${o.id}">Взять в рейс${o.bag.need ? ' и получить ячейку' : ''}</button>` : ''}</div>`;
+    ${o.status === 'paid' ? `<button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-take" data-id="${o.id}">Забрал с кухни${o.bag.need ? ' — получить ячейку' : ''}</button>` : ''}</div>`;
+}
+/* дошёл ли заказ до кассы и напечатан ли бегунок */
+function raLine(o) {
+  if (!o.ra) return '';
+  return `<div class="tiny muted" style="margin:4px 0">${o.ra.printed ? `✓ В РестАрт · бегунок на кухне с ${fmtTime(o.ra.printed)}` : '⏳ В РестАрт · кассир ещё не напечатал бегунок'} · начать не позже ${fmtTime(o.cookStart || o.readyAt)}</div>`;
 }
 function waiterMain() {
   const now = Date.now(), all = ordersList();
   let h = '';
   if (UI.wTab === 'up') {
-    const ready = all.filter(o => o.mode === 'gym' && o.status === 'ready'), trip = all.filter(o => o.mode === 'gym' && o.status === 'delivering');
-    const soon = all.filter(o => o.mode === 'gym' && (o.status === 'paid' || o.status === 'cooking') && o.readyAt - now < 40 * MIN);
+    const kitchen = all.filter(o => o.mode === 'gym' && o.status === 'paid'), trip = all.filter(o => o.mode === 'gym' && o.status === 'delivering');
+    const ready = kitchen.filter(o => o.readyAt - now < 15 * MIN), soon = kitchen.filter(o => o.readyAt - now >= 15 * MIN);
+    const gone = all.filter(o => o.status === 'cancelled' && o.ra && o.ra.printed && o.history.cancelled > now - 60 * MIN);
+    h += gone.map(o => `<div class="note red" style="margin-bottom:10px">⚠️ <b>№${o.no}</b> (${esc(o.name)}) отменён клиентом — отмена ушла в РестАрт. Предупредите кухню, чтобы не готовили.</div>`).join('');
     const doneToday = all.filter(o => o.mode === 'gym' && ['placed', 'done'].includes(o.status) && sameDay(o.readyAt, now)).reverse().slice(0, 6);
     h += `<div class="wsec"><div class="row"><h3>В рейсе · ${trip.length}</h3></div>${trip.map(waiterCard).join('') || '<div class="muted small">Сейчас ничего не несёте.</div>'}</div>`;
-    h += `<div class="wsec"><div class="row"><h3>Готовы к выносу · ${ready.length}</h3><span class="spacer"></span>${ready.length > 1 ? `<button class="btn sm lime" data-act="w-takeall">Взять все в рейс</button>` : ''}</div>${ready.map(waiterCard).join('') || '<div class="muted small">Пока нечего нести.</div>'}</div>`;
-    h += `<div class="wsec"><h3>Скоро будут готовы</h3>${soon.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${whereLabel(o)} · к ${fmtTime(o.readyAt)}</div></div><span class="st ${STATUS[o.status].color}">${STATUS[o.status].short}</span></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
+    h += `<div class="wsec"><h3>Пора забирать с кухни · ${ready.length}</h3><div class="tiny muted" style="margin-bottom:8px">Кухня готовит по бегунку из РестАрт к этому времени. Забрали пакет — нажмите «Забрал с кухни».</div>${ready.map(waiterCard).join('') || '<div class="muted small">Пока нечего нести.</div>'}</div>`;
+    h += `<div class="wsec"><h3>Готовятся позже</h3>${soon.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${whereLabel(o)} · к ${fmtTime(o.readyAt)}</div></div><button class="btn sm" data-act="w-take" data-id="${o.id}" title="Кухня отдала раньше времени">Забрал</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
     h += `<div class="wsec"><h3>Доставлено сегодня</h3>${doneToday.map(o => `<div class="ci"><div class="e" style="font-size:14px;font-weight:800">№${o.no}</div><div class="n">${esc(o.name)}<div class="tiny muted">${[o.bag.need ? 'ячейка ' + o.bag.cell + (o.bag.pickedAt ? ' — забран' : ' — ждёт') : '', o.cup.need ? 'стойка' + (o.cup.pickedAt ? ' — забран' : ' — ждёт') : ''].filter(Boolean).join(' · ')}</div></div></div>`).join('') || '<div class="muted small">Пока нет</div>'}</div>`;
   } else if (UI.wTab === 'cafe') {
-    const ready = all.filter(o => o.mode === 'cafe' && o.status === 'ready'), shelf = all.filter(o => o.mode === 'cafe' && o.status === 'placed');
+    const ready = all.filter(o => o.mode === 'cafe' && o.status === 'paid'), shelf = all.filter(o => o.mode === 'cafe' && o.status === 'placed');
     const q = UI.cafeNo.trim();
-    h += `<div class="wsec"><h3>Готовы — поставить на полку выдачи · ${ready.length}</h3>${ready.map(o => `<div class="wcard"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="st blue">к ${fmtTime(o.readyAt)}</span></div><div class="tiny muted">${o.items.map(i => i.q + '× ' + i.n).join(', ')}</div><button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-shelf" data-id="${o.id}">Поставил на полку, номер подписан</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
+    h += `<div class="wsec"><h3>На кухне — поставить на полку выдачи · ${ready.length}</h3>${ready.map(o => `<div class="wcard"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="st blue">к ${fmtTime(o.readyAt)}</span></div>${raLine(o)}<div class="tiny muted">${o.items.map(i => i.q + '× ' + i.n).join(', ')}</div><button class="btn primary" style="width:100%;justify-content:center;margin-top:8px" data-act="w-shelf" data-id="${o.id}">Поставил на полку, номер подписан</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
     h += `<div class="wsec"><h3>На полке · ${shelf.length}</h3><input class="input" style="width:100%;margin-bottom:10px" data-ui="cafeNo" data-fk="cafeNo" placeholder="Номер, который назвал клиент" inputmode="numeric" value="${esc(q)}">
       ${shelf.map(o => `<div class="wcard ${q && o.no === q ? 'hl' : ''}"><div class="top"><span class="cd">№${o.no}</span><span class="who">${esc(o.name)}</span><span class="spacer"></span><span class="tiny muted">на полке ${mm(now - (o.shelfAt || now))} мин</span></div><button class="btn ${q && o.no === q ? 'primary' : ''}" style="width:100%;justify-content:center;margin-top:8px" data-act="w-hand" data-id="${o.id}">${q && o.no === q ? 'Номер совпал — выдать' : 'Выдать'}</button></div>`).join('') || '<div class="muted small">Пусто</div>'}</div>`;
   } else h += `<div class="wsec"><h3>Ячейки шкафа</h3>${lockerGrid(false)}<div class="tiny muted" style="margin-top:10px">Ячейка освобождается, когда клиент нажимает «Заказ забрал». «Освободить» — на случай, если клиент забрал пакет и ушёл, не нажав кнопку.</div></div>`;
@@ -2482,7 +2443,7 @@ function lockerGrid(big) {
   return `<div class="cells ${big ? 'big' : ''}">${S.lockers.cells.map(c => {
     const exp = c.state === 'reserved' && c.depExp < now;
     const lbl = c.state === 'free' || exp ? 'свободна' : c.state === 'reserved' ? `бронь №${c.no}` : c.state === 'occupied' ? `№${c.no} · ${mm(now - (c.since || now))} мин` : 'ОТКРЫТА';
-    return `<div class="cell s-${exp ? 'free' : c.state}"><div class="row"><b>${c.id}</b><span class="tiny muted">${c.size}</span></div><div class="cl">${lbl}</div>${c.state === 'open' && big ? '<div class="tiny muted">' + (c.openFor === 'deposit' ? 'официант кладёт пакет №' + c.no + ' — ждём отметки «Заказ доставлен в ячейку»' : 'клиент забирает №' + c.no + ' — ячейка освободится, когда он нажмёт «Заказ забрал»') + '</div>' : ''}${!big && (c.state === 'occupied' || (c.state === 'open' && c.openFor === 'pickup')) ? `<button class="btn sm rel" data-act="w-release" data-id="${c.id}" title="Если клиент забрал пакет, но не нажал «Заказ забрал»">Освободить</button>` : ''}</div>`;
+    return `<div class="cell s-${exp ? 'free' : c.state}"><div class="row"><b>${c.id}</b></div><div class="cl">${lbl}</div>${c.state === 'open' && big ? '<div class="tiny muted">' + (c.openFor === 'deposit' ? 'официант кладёт пакет №' + c.no + ' — ждём отметки «Заказ доставлен в ячейку»' : 'клиент забирает №' + c.no + ' — ячейка освободится, когда он нажмёт «Заказ забрал»') + '</div>' : ''}${!big && (c.state === 'occupied' || (c.state === 'open' && c.openFor === 'pickup')) ? `<button class="btn sm rel" data-act="w-release" data-id="${c.id}" title="Если клиент забрал пакет, но не нажал «Заказ забрал»">Освободить</button>` : ''}</div>`;
   }).join('')}</div>`;
 }
 function lockerMain() {
@@ -2490,7 +2451,7 @@ function lockerMain() {
   const depToks = S.lockers.cells.filter(c => c.state === 'reserved' && c.depTok && c.depExp > now);
   const pickToks = Object.values(S.orders).filter(o => o.bag.need && o.bag.depositedAt && !o.bag.pickedAt && o.mode === 'gym');
   const m = UI.lockMsg;
-  return `<div class="awrap"><div class="ah"><h2>Шкаф с ячейками</h2><span class="muted">табло со сканером QR и 12 ячеек. Камера в прототипе недоступна — «подносите» телефоны кнопками ниже</span></div>
+  return `<div class="awrap"><div class="ah"><h2>Шкаф с ячейками</h2><span class="muted">табло со сканером QR и 16 одинаковых ячеек. Камера в прототипе недоступна — «подносите» телефоны кнопками ниже</span></div>
     <div class="locker">
       <div class="screen"><div class="scr ${m ? (m.ok ? 'ok' : 'bad') : ''}">${m ? `<div class="big">${m.ok ? '🔓' : '⛔'}</div><div>${esc(m.msg)}</div>` : '<div class="big">⌁</div><div>Поднесите QR-код к сканеру</div><div class="tiny" style="opacity:.7;margin-top:6px">Этажом ниже · выдача заказов</div>'}</div>
         <div class="sim"><div class="tiny muted" style="margin-bottom:6px">Имитация: какой телефон поднесли</div>
@@ -2516,14 +2477,14 @@ function posterMain() {
 }
 
 /* ===== Приложение управляющего ===== */
-const ADMIN_TABS = [['admin-menu', 'Меню и акции'], ['stock', 'Склад'], ['purchasing', 'Закупки'], ['receipts', 'Платежи и чеки'], ['loyalty', 'Клиенты и бонусы'], ['dashboard', 'Сводка'], ['settings', 'Настройки']];
+const ADMIN_TABS = [['admin-menu', 'Меню и акции'], ['restart', 'РестАрт'], ['receipts', 'Платежи и чеки'], ['loyalty', 'Клиенты и бонусы'], ['dashboard', 'Сводка'], ['settings', 'Настройки']];
 function adminHead() {
-  const stockN = S.catalog.ingredients.filter(i => ingStatus(i)[0] !== 'ok').length;
+  const noCode = S.catalog.dishes.filter(d => !d.rc).length;
   const rcQueue = Object.values(S.orders).reduce((s, o) => s + (o.receipts || []).filter(r => !rcInOfd(r)).length, 0);
-  return staffHead('Управляющий', 'меню, склад, закупки, чеки', ADMIN_TABS.map(([id, n]) => [id, n, id === 'stock' ? stockN : id === 'receipts' ? rcQueue : 0]), UI.view, 'nav');
+  return staffHead('Управляющий', 'меню, РестАрт, чеки, клиенты', ADMIN_TABS.map(([id, n]) => [id, n, id === 'restart' ? noCode : id === 'receipts' ? rcQueue : 0]), UI.view, 'nav');
 }
 function adminMain() {
-  const v = { 'admin-menu': menuAdminView, stock: stockView, purchasing: purchasingView, receipts: receiptsView, loyalty: loyaltyView, dashboard: dashboardView, settings: settingsView }[UI.view] || menuAdminView;
+  const v = { 'admin-menu': menuAdminView, restart: restartView, receipts: receiptsView, loyalty: loyaltyView, dashboard: dashboardView, settings: settingsView }[UI.view] || menuAdminView;
   const note = S.dbNote ? `<div class="banner">⚠️ ${esc(S.dbNote)}</div>` : '';
   return `<div class="awrap">${note}${v()}</div>`;
 }
@@ -2532,126 +2493,68 @@ const mins = ms => Math.round(ms / 60e3);
 const inMin = m => m >= 0 ? `через ${m} мин` : `${-m} мин назад`;
 
 /* ----- Меню и акции ----- */
-function promoRecs() {
-  const recs = [], today = new Date();
-  S.catalog.ingredients.forEach(i => {
-    if (i.shelf > 10) return;
-    const dn = avgDailyNeed(i.id), av = available(i.id), days = Math.min(i.shelf, 4);
-    if (dn > 0 && av > dn * days * 1.3) {
-      S.catalog.dishes.filter(d => !d.discount && !d.stop && d.recipe.some(x => x.ing === i.id))
-        .sort((a, b) => b.recipe.find(x => x.ing === i.id).qty - a.recipe.find(x => x.ing === i.id).qty).slice(0, 2)
-        .forEach(d => recs.push({ ic: '🏷️', dish: d, sale: 20, text: `<b>${esc(i.name)}</b>: на складе ${fmtQty(av, i.unit)}, а за ${days} дн. до конца срока уйдёт ≈${fmtQty(dn * days, i.unit)}. Скидка на «${esc(d.name)}» разгонит спрос.` }));
-    }
-  });
-  S.catalog.dishes.filter(d => d.hit && !d.stop).forEach(d => {
-    const f = forecastDish(d, today) * dayRemainFrac(), p = portions(d);
-    if (p < f) { const li = ING[limitingIng(d)]; recs.push({ ic: '⚠️', text: `Хит «<b>${esc(d.name)}</b>»: осталось ${p} порц., а до закрытия ожидаем ≈${Math.ceil(f)}. Узкое место — ${esc(li ? li.name : '')}. Проверьте закупку.`, go: 'purchasing' }); }
-  });
-  return recs;
-}
 function menuAdminView() {
   const q = UI.mq.trim().toLowerCase();
   const list = S.catalog.dishes.filter(d => (UI.mGoal === 'all' || d.goals.includes(UI.mGoal)) && (UI.mType === 'all' || d.type === UI.mType) && (!q || d.name.toLowerCase().includes(q)));
-  const recs = promoRecs();
-  const stopped = S.catalog.dishes.filter(d => !onSale(d));
+  const stopped = S.catalog.dishes.filter(d => d.stop), noCode = S.catalog.dishes.filter(d => !d.rc);
   return `<div class="ah"><h2>Меню и акции</h2><span class="muted">${S.catalog.dishes.length} блюд · хиты: ${S.catalog.dishes.filter(d => d.hit).length} · со скидкой: ${S.catalog.dishes.filter(d => d.discount).length} · в стопе: ${stopped.length}</span><span class="spacer"></span><button class="btn primary" data-act="m-new">+ Новое блюдо</button></div>
-    ${recs.length ? `<div class="panel"><h3>Подсказки системы</h3>${recs.map(r => `<div class="rec"><span class="ic">${r.ic}</span><span class="tx">${r.text}</span>${r.dish && r.sale ? `<button class="btn sm" data-act="m-apply-sale" data-id="${r.dish.id}" data-v="${r.sale}">Скидка ${r.sale}%</button>` : ''}${r.go ? `<button class="btn sm" data-act="nav" data-v="${r.go}">К закупкам</button>` : ''}</div>`).join('')}</div>` : ''}
+    ${noCode.length ? `<div class="note red" style="margin-bottom:12px">У ${noCode.length} ${plural(noCode.length, 'блюда', 'блюд', 'блюд')} нет кода РестАрт — заказ с ними не дойдёт до кассы: ${noCode.slice(0, 5).map(d => esc(d.name)).join(', ')}${noCode.length > 5 ? '…' : ''}</div>` : ''}
     <div class="panel">
       <div class="toolbar" style="margin-top:0"><div class="search">${ICON.search}<input class="input" data-ui="mq" data-fk="mq" placeholder="Найти блюдо" value="${esc(UI.mq)}"></div>
         <select class="input" data-ui-sel="mGoal"><option value="all">Все цели</option>${GOALS.map(g => `<option value="${g.id}" ${UI.mGoal === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}</select>
         <select class="input" data-ui-sel="mType"><option value="all">Все типы</option>${TYPES.map(t => `<option value="${t.id}" ${UI.mType === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div>
-      <div class="tw"><table class="t"><thead><tr><th>Блюдо</th><th>Цели</th><th class="r">Цена, ₽</th><th class="r">Скидка, %</th><th class="r">На сайте</th><th>Хит дня</th><th>Стоп</th><th class="r">Порций</th><th>Ограничивает</th><th class="r">Себест.</th><th class="r">Фудкост</th></tr></thead><tbody>
-      ${list.map(d => { const p = portions(d), li = ING[limitingIng(d)], cost = dishCost(d), fc = cost / effPrice(d) * 100; return `<tr>
+      <div class="tw"><table class="t"><thead><tr><th>Блюдо</th><th>Цели</th><th>Код РестАрт</th><th class="r">Цена, ₽</th><th class="r">Скидка, %</th><th class="r">На сайте</th><th>Хит дня</th><th>Стоп</th></tr></thead><tbody>
+      ${list.map(d => `<tr>
         <td><a href="#admin-menu" data-act="m-edit" data-id="${d.id}" style="text-decoration:none;color:inherit"><b>${d.emoji} ${esc(d.name)}</b></a><div class="tiny muted">${TYPE[d.type].name} · ${d.kcal} ккал · ${d.cook} мин</div></td>
         <td><div class="goal-dots">${d.goals.map(g => `<span class="gdot" style="--gc:${GOAL[g].color}">${GOAL[g].name}</span>`).join('')}</div></td>
+        <td><input class="input" value="${esc(d.rc || '')}" data-rc="1" data-id="${d.id}" data-fk="rc-${d.id}" placeholder="нет кода" style="width:96px${d.rc ? '' : ';border-color:var(--red)'}"></td>
         <td class="r"><input class="input num" type="number" min="0" step="10" value="${d.price}" data-dish="price" data-id="${d.id}" data-fk="pr-${d.id}"></td>
         <td class="r"><input class="input num" type="number" min="0" max="90" step="5" value="${d.discount || 0}" data-dish="discount" data-id="${d.id}" data-fk="dc-${d.id}" style="width:64px"></td>
         <td class="r b num">${fmtRub(effPrice(d))}</td>
         <td><button class="tog hitc ${d.hit ? 'on' : ''}" data-act="m-hit" data-id="${d.id}" aria-label="Хит дня"></button></td>
-        <td><button class="tog stopc ${d.stop ? 'on' : ''}" data-act="m-stop" data-id="${d.id}" aria-label="Стоп"></button></td>
-        <td class="r num">${d.stop ? '<span class="st out">стоп</span>' : p === 0 ? '<span class="st out">0 — авто-стоп</span>' : p <= 5 ? `<span class="st low">${p}</span>` : p}</td>
-        <td class="small">${li ? esc(li.name) : '—'}</td>
-        <td class="r num">${fmtRub(cost)}</td>
-        <td class="r num ${fc > 35 ? 'b' : ''}" style="${fc > 35 ? 'color:var(--orange)' : ''}">${fmtNum(fc)}%</td></tr>`; }).join('')}
+        <td><button class="tog stopc ${d.stop ? 'on' : ''}" data-act="m-stop" data-id="${d.id}" aria-label="Стоп"></button></td></tr>`).join('')}
       </tbody></table></div>
-      <p class="tiny muted">Порций = минимум по ингредиентам (остаток − резерв) ÷ норма из техкарты. При 0 блюдо автоматически скрывается с сайта. Фудкост выше 35% подсвечен.</p>
+      <p class="tiny muted">Стоп-лист ставится здесь: блюдо пропадает с сайта. Остатки продуктов, техкарты и закупки ведутся в РестАрт и 1С. Код РестАрт — код этой позиции в номенклатуре кассы: по нему заказ с сайта попадает в РестАрт.</p>
     </div>`;
 }
 function editDishModal() {
   const d = UI.editDish, isNew = !DISH[d.id];
-  const ingOpts = sel => S.catalog.ingredients.map(i => `<option value="${i.id}" ${sel === i.id ? 'selected' : ''}>${esc(i.name)} (${UI_UNIT(i)})</option>`).join('');
-  const f = (k, label, type = 'text', extra = '') => `<div class="field"><label>${label}</label><input class="input" type="${type}" data-ed="${k}" data-fk="ed-${k}" value="${esc(d[k])}" ${extra}></div>`;
+  const f = (k, label, type = 'text', extra = '') => `<div class="field"><label>${label}</label><input class="input" type="${type}" data-ed="${k}" data-fk="ed-${k}" value="${esc(d[k] ?? '')}" ${extra}></div>`;
   return `<div class="overlay" data-act="close-modal"><div class="modal wide">
     <div class="mh"><h3>${isNew ? 'Новое блюдо' : 'Редактировать: ' + esc(d.name)}</h3><button class="x" data-act="close-modal">×</button></div>
     <div class="mb">
-      <div class="formgrid">${f('name', 'Название', 'text')}${f('emoji', 'Иконка (эмодзи)')}<div class="field"><label>Тип</label><select class="input" data-ed="type">${TYPES.map(t => `<option value="${t.id}" ${d.type === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div><div class="field"><label>Цех</label><select class="input" data-ed="station">${STATIONS.map(t => `<option value="${t.id}" ${d.station === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div>${f('weight', 'Выход')}</div>
+      <div class="formgrid">${f('name', 'Название', 'text')}${f('emoji', 'Иконка (эмодзи)')}<div class="field"><label>Тип</label><select class="input" data-ed="type">${TYPES.map(t => `<option value="${t.id}" ${d.type === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div><div class="field"><label>Цех (для расчёта загрузки)</label><select class="input" data-ed="station">${STATIONS.map(t => `<option value="${t.id}" ${d.station === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div>${f('weight', 'Выход')}${f('rc', 'Код в РестАрт')}</div>
       <div class="field"><label>Описание</label><input class="input" data-ed="desc" data-fk="ed-desc" value="${esc(d.desc)}"></div>
       <div class="field"><label>Цели питания</label><div class="chips">${GOALS.map(g => `<button class="chip ${d.goals.includes(g.id) ? 'on' : ''}" data-act="ed-goal" data-v="${g.id}">${g.icon} ${g.name}</button>`).join('')}</div></div>
       <div class="formgrid">${f('price', 'Цена, ₽', 'number')}${f('cook', 'Готовка, мин', 'number')}${f('kcal', 'Ккал', 'number')}${f('p', 'Белки, г', 'number')}${f('f', 'Жиры, г', 'number')}${f('c', 'Углеводы, г', 'number')}${f('serves', 'Персон', 'number')}</div>
-      <div class="field"><label>Техкарта (норма на 1 позицию)</label>
-        ${d.recipe.map((r, ix) => `<div class="recipe-row"><select class="input" data-edr="ing" data-i="${ix}">${ingOpts(r.ing)}</select><input class="input" type="number" step="any" min="0" data-edr="qty" data-i="${ix}" data-fk="edr-${ix}" value="${r.qty}"><button class="x" data-act="ed-delrow" data-i="${ix}">×</button></div>`).join('')}
-        <button class="btn sm" data-act="ed-addrow">+ Ингредиент</button></div>
-      <div class="small muted">Себестоимость по техкарте: <b>${fmtRub(dishCost(d))}</b> · фудкост ${d.price ? fmtNum(dishCost(d) / (d.price * (1 - (d.discount || 0) / 100)) * 100) : 0}%</div>
+      <div class="small muted">Техкарта и себестоимость — в РестАрт и 1С.</div>
     </div>
     <div class="mf">${isNew ? '' : `<button class="btn danger" data-act="ed-delete">${UI.confirmDel ? 'Точно удалить?' : 'Удалить блюдо'}</button>`}<span class="spacer"></span><button class="btn" data-act="close-modal">Отмена</button><button class="btn primary" data-act="ed-save">Сохранить</button></div>
   </div></div>`;
 }
-const UI_UNIT = i => UNIT[i.unit];
 
-/* ----- Склад ----- */
-const MOVE_T = { in: 'Приход', order: 'Заказ с сайта', hall: 'Продажа в зале', waste: 'Списание', inv: 'Инвентаризация' };
-function ingStatus(i) { const a = available(i.id), dn = avgDailyNeed(i.id); return a <= 0 ? ['out', 'Нет'] : (a < i.min || (dn > 0 && a < dn)) ? ['low', 'Мало'] : ['ok', 'Норма']; }
-function stockView() {
-  const q = UI.sq.trim().toLowerCase(), cats = [...new Set(S.catalog.ingredients.map(i => i.cat))];
-  const list = S.catalog.ingredients.filter(i => (UI.sCat === 'all' || i.cat === UI.sCat) && (!q || i.name.toLowerCase().includes(q)) && (UI.sStatus === 'all' || ingStatus(i)[0] === UI.sStatus));
-  const low = S.catalog.ingredients.filter(i => ingStatus(i)[0] === 'low').length, out = S.catalog.ingredients.filter(i => ingStatus(i)[0] === 'out').length;
-  const value = S.catalog.ingredients.reduce((s, i) => s + unitCost(i.stock, i.unit, i.offers[0].price), 0);
-  const res = reserved(), stopped = S.catalog.dishes.filter(d => !onSale(d));
-  const transit = S.catalog.pos.filter(p => p.status === 'sent');
-  return `<div class="ah"><h2>Склад</h2><span class="muted">остатки в реальном времени: заказы резервируют продукты, старт готовки списывает</span><span class="spacer"></span>
-      <button class="btn" data-act="op" data-v="in">+ Приход</button><button class="btn" data-act="op" data-v="hall">Продажа в зале</button><button class="btn" data-act="op" data-v="waste">Списание</button><button class="btn" data-act="op" data-v="inv">Инвентаризация</button></div>
+/* ----- РестАрт: передача заказов в кассу кафе ----- */
+function restartView() {
+  const now = Date.now(), today = Object.values(S.orders).filter(o => o.ra && sameDay(o.ra.at || o.createdAt, now)).sort((a, b) => b.createdAt - a.createdAt);
+  const noCode = S.catalog.dishes.filter(d => !d.rc), notPrinted = today.filter(o => o.status === 'paid' && !o.ra.printed);
+  const raSt = o => o.status === 'cancelled' ? '<span class="st grey">отменён</span>' : '<span class="st green">в РестАрт</span>';
+  return `<div class="ah"><h2>РестАрт</h2><span class="muted">оплаченный заказ уходит в кассу кафе, кассир печатает бегунок для кухни</span></div>
+    <div class="note" style="margin-bottom:12px">В демо РестАрт имитируется: заказ «доходит» сразу, а экран кассира — во вкладке «Касса РестАрт». В рабочей версии сервер отправляет заказ через службу RestAPI РестАрт и повторяет, если связи нет.</div>
     <div class="kpis">
-      <div class="kpi ${out ? 'bad' : ''}"><div class="l">Закончилось</div><div class="v">${out}</div><div class="s">ингредиентов</div></div>
-      <div class="kpi ${low ? 'warn' : ''}"><div class="l">Заканчивается</div><div class="v">${low}</div><div class="s">ниже минимума или меньше чем на день</div></div>
-      <div class="kpi ${stopped.length ? 'warn' : ''}"><div class="l">Блюд в стоп-листе</div><div class="v">${stopped.length}</div><div class="s">${stopped.slice(0, 3).map(d => esc(d.name)).join(', ') || 'все в продаже'}</div></div>
-      <div class="kpi"><div class="l">Стоимость запасов</div><div class="v">${fmtRub(value)}</div><div class="s">по ценам основных поставщиков</div></div>
-      <div class="kpi"><div class="l">Поставок в пути</div><div class="v">${transit.length}</div><div class="s">${fmtRub(transit.reduce((s, p) => s + p.total, 0))}</div></div>
+      <div class="kpi"><div class="l">Передано сегодня</div><div class="v">${today.length}</div><div class="s">тип заказа «Сайт»</div></div>
+      <div class="kpi ${notPrinted.length ? 'warn' : ''}"><div class="l">Бегунок не напечатан</div><div class="v">${notPrinted.length}</div><div class="s">кассир ещё не отнёс на кухню</div></div>
+      <div class="kpi"><div class="l">Не дошли</div><div class="v">0</div><div class="s">кассир пробивает их вручную</div></div>
+      <div class="kpi ${noCode.length ? 'bad' : ''}"><div class="l">Блюд без кода</div><div class="v">${noCode.length}</div><div class="s">заказ с ними не дойдёт</div></div>
     </div>
-    <div class="panel">
-      <div class="toolbar" style="margin-top:0"><div class="search">${ICON.search}<input class="input" data-ui="sq" data-fk="sq" placeholder="Найти продукт" value="${esc(UI.sq)}"></div>
-        <select class="input" data-ui-sel="sCat"><option value="all">Все категории</option>${cats.map(c => `<option ${UI.sCat === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
-        <select class="input" data-ui-sel="sStatus"><option value="all">Любой статус</option><option value="out" ${UI.sStatus === 'out' ? 'selected' : ''}>Нет</option><option value="low" ${UI.sStatus === 'low' ? 'selected' : ''}>Мало</option><option value="ok" ${UI.sStatus === 'ok' ? 'selected' : ''}>Норма</option></select></div>
-      <div class="tw"><table class="t"><thead><tr><th>Продукт</th><th class="r">Остаток</th><th class="r">Резерв</th><th class="r">Доступно</th><th class="r">Мин. остаток</th><th class="r">Хватит на</th><th class="r">Срок годн.</th><th>Поставщик</th><th>Статус</th><th></th></tr></thead><tbody>
-      ${list.map(i => { const a = available(i.id), dn = avgDailyNeed(i.id), days = dn > 0 ? a / dn : Infinity, [sc, sn] = ingStatus(i); return `<tr>
-        <td><b>${esc(i.name)}</b><div class="tiny muted">${i.cat}</div></td>
-        <td class="r num">${fmtQty(i.stock, i.unit)}</td><td class="r num muted">${res[i.id] ? fmtQty(res[i.id], i.unit) : '—'}</td>
-        <td class="r num b">${fmtQty(Math.max(0, a), i.unit)}</td><td class="r num muted">${fmtQty(i.min, i.unit)}</td>
-        <td class="r num">${days === Infinity ? '—' : days < 1 ? '<span style="color:var(--red);font-weight:700">&lt; 1 дн.</span>' : fmtNum(days, days < 10 ? 1 : 0) + ' дн.'}</td>
-        <td class="r num muted">${i.shelf} дн.</td><td class="small">${esc(SUP[i.offers[0].s].name)}</td>
-        <td><span class="st ${sc}">${sn}</span></td>
-        <td><button class="btn sm ghost" data-act="op" data-v="in" data-ing="${i.id}">Приход</button><button class="btn sm ghost" data-act="op" data-v="inv" data-ing="${i.id}">Факт</button></td></tr>`; }).join('')}
-      </tbody></table></div>
-    </div>
-    <div class="panel"><h3>Журнал движений</h3><div class="tw" style="max-height:340px"><table class="t"><thead><tr><th>Когда</th><th>Продукт</th><th class="r">Количество</th><th>Операция</th><th>Основание</th></tr></thead><tbody>
-      ${S.catalog.moves.slice().sort((a, b) => b.at - a.at).slice(0, 40).map(m => { const i = ING[m.ing]; return `<tr><td class="nowrap small">${fmtDate(m.at)}, ${fmtTime(m.at)}</td><td>${i ? esc(i.name) : m.ing}</td><td class="r num b" style="color:${m.qty > 0 ? 'var(--green)' : 'var(--ink)'}">${m.qty > 0 ? '+' : '−'}${i ? fmtQty(Math.abs(m.qty), i.unit) : Math.abs(m.qty)}</td><td><span class="st ${m.type === 'in' ? 'green' : m.type === 'waste' ? 'red' : m.type === 'inv' ? 'violet' : 'grey'}">${MOVE_T[m.type] || m.type}</span></td><td class="small muted">${esc(m.note || '')}</td></tr>`; }).join('')}
-    </tbody></table></div></div>`;
+    <div class="panel"><h3>Сегодня</h3><div class="tw"><table class="t"><thead><tr><th>№</th><th>Оплачен</th><th>К</th><th>Начать не позже</th><th>РестАрт</th><th>Бегунок</th></tr></thead><tbody>
+      ${today.map(o => `<tr><td><b>${o.no}</b></td><td>${fmtTime(o.ra.at)}</td><td>${fmtTime(o.readyAt)}</td><td>${fmtTime(o.cookStart || o.readyAt)}</td><td>${raSt(o)} <span class="tiny muted">${o.ra.id}</span></td><td>${o.ra.printed ? fmtTime(o.ra.printed) : '<span class="st orange">ждёт кассира</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Сегодня заказов ещё не было</td></tr>'}
+    </tbody></table></div></div>
+    <div class="panel"><h3>Как это устроено</h3><div class="small">
+      <p>1. Клиент оплатил на сайте → облачная касса сайта пробила чек → заказ ушёл в РестАрт с типом оплаты «Оплачено на сайте» (нефискальный: второго чека нет).</p>
+      <p>2. Кассир видит заказ в РестАрт и печатает бегунок: номер, к какому времени, когда начать, куда нести.</p>
+      <p>3. Кухня готовит по бегунку. Официант забирает пакет и нажимает «Забрал с кухни» — получает ячейку и код к ней.</p>
+      <p>4. Клиент отменил заказ — отмена тоже уходит в РестАрт, кассир и официант видят предупреждение.</p></div></div>`;
 }
-function opModal() {
-  const m = UI.modal, t = m.type;
-  const titles = { in: 'Приход продуктов', waste: 'Списание (порча, брак)', inv: 'Инвентаризация: фактический остаток', hall: 'Продажа в зале кафе' };
-  const ingSel = `<div class="field"><label>Продукт</label><select class="input" data-op="ing">${S.catalog.ingredients.map(i => `<option value="${i.id}" ${m.ing === i.id ? 'selected' : ''}>${esc(i.name)} — сейчас ${fmtQty(i.stock, i.unit)}</option>`).join('')}</select></div>`;
-  const i = ING[m.ing];
-  const body = t === 'hall'
-    ? `<p class="small muted">Пока касса кафе не связана с сайтом, продажи в зале вносятся здесь — иначе остатки на сайте разойдутся с реальностью.</p>
-       <div class="field"><label>Блюдо</label><select class="input" data-op="dish">${S.catalog.dishes.map(d => `<option value="${d.id}" ${m.dish === d.id ? 'selected' : ''}>${d.emoji} ${esc(d.name)}</option>`).join('')}</select></div>
-       <div class="field"><label>Количество порций</label><input class="input" type="number" min="1" data-op="qty" data-fk="op-qty" value="${m.qty || 1}"></div>`
-    : `${ingSel}<div class="field"><label>${t === 'inv' ? 'Фактический остаток' : 'Количество'}, ${i ? UNIT[i.unit] : ''}</label><input class="input" type="number" step="any" min="0" data-op="qty" data-fk="op-qty" value="${m.qty ?? ''}" placeholder="${t === 'inv' && i ? 'по учёту ' + i.stock : ''}"></div>
-       <div class="field"><label>Комментарий</label><input class="input" data-op="note" data-fk="op-note" value="${esc(m.note || '')}" placeholder="${t === 'in' ? 'накладная, поставщик' : t === 'waste' ? 'причина' : ''}"></div>`;
-  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(520px,100%)"><div class="mh"><h3>${titles[t]}</h3><button class="x" data-act="close-modal">×</button></div>
-    <div class="mb">${body}</div><div class="mf"><button class="btn" data-act="close-modal">Отмена</button><button class="btn primary" data-act="op-save">Провести</button></div></div></div>`;
-}
-
-/* ----- Закупки ----- */
 function colChart(vals, labels, { split = -1, h = 210, fmt = v => fmtNum(v), mark = -1 } = {}) {
   const W = 1000, pl = 44, pr = 8, pt = 10, pb = 26, n = vals.length;
   const max = Math.max(1, ...vals), step = Math.pow(10, Math.floor(Math.log10(max))), top = Math.ceil(max / step * 1.1) * step;
@@ -2666,63 +2569,6 @@ function colChart(vals, labels, { split = -1, h = 210, fmt = v => fmtNum(v), mar
   if (split >= 0) g += `<line x1="${pl + split * bw}" x2="${pl + split * bw}" y1="${pt}" y2="${h - pb}" stroke="#17201b" stroke-dasharray="4 4"/>`;
   return `<svg class="chart" viewBox="0 0 ${W} ${h}" role="img">${g}</svg>`;
 }
-function purchasingView() {
-  const st = S.catalog.settings, today = startOfDay(new Date());
-  const past = [], labels = [], fut = [];
-  for (let k = HISTORY_DAYS; k >= 1; k--) { const d = addDays(today, -k); past.push(S.catalog.dishes.reduce((s, x) => s + histSales(x, d), 0)); labels.push(d.getDate() + ' ' + MON[d.getMonth()]); }
-  for (let k = 0; k < 7; k++) { const d = addDays(today, k); fut.push(Math.round(S.catalog.dishes.reduce((s, x) => s + forecastDish(x, d), 0))); labels.push(d.getDate() + ' ' + MON[d.getMonth()]); }
-  const rows = S.catalog.ingredients.map(i => planRow(i, UI.pChoice[i.id] || defaultSupplier(i)));
-  const shown = rows.filter(r => UI.pAll || r.qty > 0 || r.risk).sort((a, b) => (b.risk - a.risk) || (b.sum - a.sum));
-  const toOrder = rows.filter(r => r.qty > 0), bySup = {};
-  toOrder.forEach(r => { bySup[r.sup.id] = (bySup[r.sup.id] || 0) + r.sum; });
-  const pos = S.catalog.pos.slice().sort((a, b) => ({ draft: 0, sent: 1, received: 2 }[a.status] - { draft: 0, sent: 1, received: 2 }[b.status]) || b.createdAt - a.createdAt);
-  return `<div class="ah"><h2>Закупки</h2><span class="muted">потребность = прогноз продаж × техкарты до следующей поставки, с учётом остатков, резерва и заказанного</span></div>
-    <div class="panel"><div class="settings">
-      <label>Страховой запас <input type="range" min="0" max="50" step="5" value="${st.safety}" data-set="safety"><b class="num">${st.safety}%</b></label>
-      <label>Ожидаемый рост спроса <input type="range" min="-30" max="60" step="5" value="${st.growth}" data-set="growth"><b class="num">${st.growth > 0 ? '+' : ''}${st.growth}%</b></label>
-      <label><button class="tog ${st.promo ? 'on' : ''}" data-act="p-promo"></button> Учитывать хиты и скидки в прогнозе</label>
-    </div></div>
-    <div class="panel"><div class="row"><h3 style="margin:0">Порций в день: факт за 4 недели и прогноз на неделю</h3><span class="spacer"></span><div class="legend"><span><i style="background:#1d6b45"></i>продано</span><span><i style="background:#c9f26b;outline:1px solid #8fb33a"></i>прогноз</span></div></div>
-      ${colChart(past.concat(fut), labels, { split: HISTORY_DAYS, fmt: v => fmtNum(v) + ' порц.' })}
-      <p class="tiny muted" style="margin:6px 0 0">Прогноз блюда = среднее продаж в тот же день недели за 4 недели × (1 + рост спроса) × коэффициент акции (хит ×1,3; скидка 20% ×1,3).</p></div>
-    <div class="panel">
-      <div class="row wrap"><h3 style="margin:0">Предложение к заказу</h3><span class="muted small">${toOrder.length} позиций · ${fmtRub(toOrder.reduce((s, r) => s + r.sum, 0))} · ${Object.keys(bySup).length} ${plural(Object.keys(bySup).length, 'поставщик', 'поставщика', 'поставщиков')}</span><span class="spacer"></span>
-        <label class="small row"><button class="tog ${UI.pAll ? 'on' : ''}" data-act="p-all"></button> показать все продукты</label>
-        <button class="btn primary" data-act="p-generate" ${toOrder.length ? '' : 'disabled'}>Сформировать заявки</button></div>
-      <div class="tw" style="margin-top:10px"><table class="t"><thead><tr><th>Продукт</th><th class="r">Расход/день</th><th class="r">Доступно</th><th class="r">Уже заказано</th><th>Поставщик и цена</th><th>Поставка</th><th class="r">Нужно до след.</th><th class="r">К заказу</th><th class="r">Сумма</th><th></th></tr></thead><tbody>
-      ${shown.map(r => { const i = r.ing; return `<tr>
-        <td><b>${esc(i.name)}</b><div class="tiny muted">фасовка ${fmtQty(i.pack, i.unit)}</div></td>
-        <td class="r num">${fmtQty(avgDailyNeed(i.id), i.unit)}</td><td class="r num">${fmtQty(Math.max(0, r.avail), i.unit)}</td><td class="r num muted">${r.ordered ? fmtQty(r.ordered, i.unit) : '—'}</td>
-        <td><select class="input" data-pchoice data-id="${i.id}" style="width:auto;max-width:240px">${i.offers.map(o => `<option value="${o.s}" ${o.s === r.sup.id ? 'selected' : ''}>${esc(SUP[o.s].name)} — ${fmtRub(o.price)}/${priceUnit(i.unit)}</option>`).join('')}</select></td>
-        <td class="small nowrap">${fmtDate(r.next)}<div class="tiny muted">след.: ${fmtDate(r.following)}</div></td>
-        <td class="r num">${fmtQty(r.needTotal, i.unit)}</td><td class="r num b">${r.qty ? fmtQty(r.qty, i.unit) : '—'}</td><td class="r num">${r.qty ? fmtRub(r.sum) : '—'}</td>
-        <td>${r.risk ? '<span class="st out" title="Запаса не хватит до ближайшей поставки">риск дефицита</span>' : ''}</td></tr>`; }).join('') || '<tr><td colspan="10" class="muted">Всё в норме — заказывать ничего не нужно.</td></tr>'}
-      </tbody></table></div>
-      <p class="tiny muted">К заказу = потребность до поставки, следующей за ближайшей, × (1 + страховой запас) − доступно − уже заказано; округляется вверх до фасовки. При риске дефицита по умолчанию предлагается резервный поставщик с доставкой на следующий день.</p>
-    </div>
-    <div class="panel"><h3>Заявки поставщикам</h3>${pos.map(poCard).join('') || '<div class="muted small">Заявок пока нет.</div>'}</div>
-    <div class="panel"><h3>Поставщики</h3><div class="tw"><table class="t"><thead><tr><th>Поставщик</th><th>Что везёт</th><th>Дни поставки</th><th class="r">Заказ за</th><th class="r">Приём до</th><th class="r">Мин. сумма</th><th>Ближайшая поставка</th></tr></thead><tbody>
-      ${S.catalog.suppliers.map(s => `<tr><td><b>${esc(s.name)}</b>${s.backup ? ' <span class="st grey">резерв</span>' : ''}</td><td class="small">${esc(s.what)}</td><td class="small">${s.days.length === 7 ? 'ежедневно' : s.days.map(d => ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'][d - 1]).join(', ')}</td><td class="r">${s.lead} дн.</td><td class="r">${s.cutoff}:00</td><td class="r num">${s.min ? fmtRub(s.min) : '—'}</td><td class="small">${fmtDate(deliverySchedule(s).next)}</td></tr>`).join('')}
-    </tbody></table></div></div>`;
-}
-function poCard(p) {
-  const s = SUP[p.supplierId] || { name: p.supplierId, min: 0 };
-  const stc = { draft: ['grey', 'Черновик'], sent: ['blue', 'Отправлена · в пути'], received: ['green', 'Получена'] }[p.status];
-  return `<div class="po"><div class="ph"><b>${esc(s.name)}</b><span class="st ${stc[0]}">${stc[1]}</span><span class="small muted">поставка ${fmtDate(p.deliveryDate)}${p.receivedAt ? ' · принята ' + fmtTime(p.receivedAt) : ''}</span><span class="spacer"></span><b class="num">${fmtRub(p.total)}</b>
-    ${p.status === 'draft' ? `<button class="btn sm primary" data-act="po-send" data-id="${p.id}">Отправить поставщику</button><button class="btn sm ghost danger" data-act="po-del" data-id="${p.id}">Удалить</button>` : ''}
-    ${p.status === 'sent' ? `<button class="btn sm lime" data-act="po-recv" data-id="${p.id}">Принять поставку</button>` : ''}</div>
-    ${p.status !== 'received' && s.min && p.total < s.min ? `<div class="note" style="margin-top:8px">Сумма ниже минимального заказа поставщика (${fmtRub(s.min)}). Добавьте позиции или переключите их на резервного поставщика.</div>` : ''}
-    ${p.status !== 'received' || UI.poOpen === p.id ? `<table class="t"><tbody>${p.items.map(it => { const i = ING[it.ing]; return `<tr><td>${i ? esc(i.name) : it.ing}</td><td class="r num">${i ? fmtQty(it.qty, i.unit) : it.qty}</td><td class="r num muted">${fmtRub(it.price)}/${i ? priceUnit(i.unit) : ''}</td><td class="r num">${i ? fmtRub(unitCost(it.qty, i.unit, it.price)) : ''}</td></tr>`; }).join('')}</tbody></table>` : `<div class="tiny muted" style="margin-top:4px">${p.items.map(it => ING[it.ing] ? ING[it.ing].name : it.ing).join(', ')}</div>`}
-  </div>`;
-}
-function receiveModal(p) {
-  return `<div class="overlay" data-act="close-modal"><div class="modal" style="width:min(600px,100%)"><div class="mh"><h3>Приёмка: ${esc(SUP[p.supplierId].name)}</h3><button class="x" data-act="close-modal">×</button></div>
-    <div class="mb"><p class="small muted">Сверьте фактическое количество с накладной. Остатки на складе увеличатся, блюда вернутся на сайт автоматически.</p>
-    <table class="t"><thead><tr><th>Продукт</th><th class="r">Заказано</th><th class="r">Принято</th></tr></thead><tbody>${p.items.map((it, ix) => { const i = ING[it.ing]; return `<tr><td>${esc(i.name)}</td><td class="r num">${fmtQty(it.qty, i.unit)}</td><td class="r"><input class="input num" type="number" step="any" min="0" data-rcv="${ix}" data-fk="rcv-${ix}" value="${UI.rcv && UI.rcv[ix] != null ? UI.rcv[ix] : it.qty}" style="width:100px"> ${UNIT[i.unit]}</td></tr>`; }).join('')}</tbody></table></div>
-    <div class="mf"><button class="btn" data-act="close-modal">Отмена</button><button class="btn primary" data-act="po-recv-ok" data-id="${p.id}">Принять на склад</button></div></div></div>`;
-}
-
-/* ----- Сводка ----- */
 function dashboardView() {
   const now = Date.now(), today = Object.values(S.orders).filter(o => sameDay(o.createdAt, now) || sameDay(o.readyAt, now));
   const paid = today.filter(o => o.status !== 'cancelled'), rev = paid.reduce((s, o) => s + paidOf(o), 0);
@@ -2758,8 +2604,9 @@ function dashboardView() {
 function settingsView() {
   const s = st();
   const num = (path, val, min, max) => `<input class="input num" type="number" min="${min}" max="${max}" value="${val}" data-setp="${path}" style="width:80px">`;
-  return `<div class="ah"><h2>Настройки кухни, выдачи и кассы</h2><span class="muted">планировщик сразу пересчитывает задачи и минимальное время на сайте</span></div>
+  return `<div class="ah"><h2>Настройки выдачи и кассы</h2><span class="muted">ближайшее время на сайте пересчитывается сразу</span></div>
     <div class="grid2"><div class="panel"><h3>Цеха: сколько блюд готовится одновременно</h3>
+      <p class="tiny muted">Кухня работает в РестАрт по бегункам. Эти числа нужны, чтобы сайт не предлагал время, к которому кухня не успеет.</p>
       ${STATIONS.map(x => `<div class="row" style="margin:8px 0"><span style="width:160px"><b style="color:${x.color}">${x.name}</b></span>${num('stations.' + x.id, s.stations[x.id], 1, 10)}<span class="small muted">мест</span></div>`).join('')}
       <p class="tiny muted">Блюда распределяются по цехам из карточки блюда (поле «Цех»).</p></div>
     <div class="panel"><h3>Время на упаковку и доставку, мин</h3>
@@ -2768,7 +2615,7 @@ function settingsView() {
       <div class="row" style="margin:8px 0"><span style="width:220px">Подъём на стойку ресепшена</span>${num('deliver.counter', s.deliver.counter, 0, 30)}</div>
       <div class="row" style="margin:8px 0"><span style="width:220px">Выдача в кафе</span>${num('deliver.cafe', s.deliver.cafe, 0, 15)}</div></div></div>
     ${fiscalSettingsPanel()}
-    <div class="panel"><h3>Шкаф</h3><p class="small">12 ячеек: A1–A4 размер S (перекусы), B1–B4 размер M (обед), C1–C4 размер L (семейные наборы и рационы). Свободная ячейка подбирается по размеру пакета.</p>${lockerGrid(false)}</div>`;
+    <div class="panel"><h3>Шкаф</h3><p class="small">16 одинаковых ячеек A1–D4: в каждую помещается пакет с заказом. Официант получает любую свободную ячейку.</p>${lockerGrid(false)}</div>`;
 }
 
 /* ----- Платежи и чеки ----- */
@@ -2838,12 +2685,13 @@ function fiscalSettingsPanel() {
 }
 
 /* ===== Приложения и маршруты ===== */
-const APPS = [['client', 'Клиент', 'menu'], ['kitchen', 'Кухня', 'kitchen'], ['waiter', 'Официант', 'waiter'], ['locker', 'Шкаф', 'locker'], ['manager', 'Управляющий', 'admin-menu'], ['poster', 'QR в зале', 'poster']];
-const MANAGER_VIEWS = ['admin-menu', 'stock', 'purchasing', 'receipts', 'loyalty', 'dashboard', 'settings'];
+const APPS = [['client', 'Клиент', 'menu'], ['cashier', 'Касса РестАрт', 'cashier'], ['waiter', 'Официант', 'waiter'], ['locker', 'Шкаф', 'locker'], ['manager', 'Управляющий', 'admin-menu'], ['poster', 'QR в зале', 'poster']];
+const MANAGER_VIEWS = ['admin-menu', 'restart', 'receipts', 'loyalty', 'dashboard', 'settings'];
 function readHash() {
   const h = location.hash.slice(1);
   if (MANAGER_VIEWS.includes(h)) { UI.app = 'manager'; UI.view = h; UI.mView = h; }
-  else if (['kitchen', 'waiter', 'locker', 'poster'].includes(h)) { UI.app = h; UI.view = h; }
+  else if (['cashier', 'waiter', 'locker', 'poster'].includes(h)) { UI.app = h; UI.view = h; }
+  else if (h === 'kitchen') { UI.app = 'cashier'; UI.view = 'cashier'; }      // старые ссылки на кухню
   else { UI.app = 'client'; UI.view = 'menu'; }
 }
 window.addEventListener('hashchange', () => { readHash(); UI.modal = null; UI.drawer = null; UI.lockMsg = null; render(); window.scrollTo(0, 0); });
@@ -2873,8 +2721,7 @@ function layerHTML() {
     else if (m.kind === 'profile' && sessionKey()) h += profileModal();
     else if (m.kind === 'receipt' && S.orders[m.id]) { const o = S.orders[m.id], r = (o.receipts || []).find(x => x.id === m.r); if (r) h += receiptModal(o, r, m.back); }
     else if (m.kind === 'edit' && UI.editDish) h += editDishModal();
-    else if (m.kind === 'op') h += opModal();
-    else if (m.kind === 'receive') { const p = S.catalog.pos.find(x => x.id === m.id); if (p) h += receiveModal(p); }
+    else if (m.kind === 'runner' && S.orders[m.id]) h += runnerModal(S.orders[m.id]);
   }
   if (fresh) h = h.replace(/class="overlay"/g, 'class="overlay anim"').replace(/class="drawer"/g, 'class="drawer anim"');
   return h;
@@ -2888,7 +2735,7 @@ function render() {
   document.body.dataset.app = UI.app;
   $('#demobar').innerHTML = demobarHTML();
   const A = {
-    client: [clientHead, clientMain], kitchen: [kitchenHead, kitchenMain], waiter: [waiterHead, waiterMain],
+    client: [clientHead, clientMain], cashier: [cashierHead, cashierMain], waiter: [waiterHead, waiterMain],
     locker: [() => staffHead('Табло шкафа', 'ячейки у ресепшена клуба'), lockerMain], manager: [adminHead, adminMain], poster: [() => '', posterMain],
   }[UI.app];
   $('#head').innerHTML = A[0](); $('#main').innerHTML = A[1]();
@@ -3002,14 +2849,12 @@ const ACT = {
   'cancel-order': el => { if (cancelOrder(el.dataset.id)) toast('Заказ отменён: Форабанк вернёт деньги на карту или счёт, чек возврата придёт на email или SMS', 'ok', 5000); else toast('Заказ уже готовится — отменить нельзя', 'warn'); render(); },
   'client-scan': el => { const o = byId(el.dataset.id); if (!o) return; const r = lockerScan(o.pickTok); UI.lockMsg = r; toast(r.msg, r.ok ? 'ok' : 'warn', 5000); render(); },
 
-  'k-st': el => { UI.kSt = el.dataset.v; render(); },
-  't-start': el => { taskStart(el.dataset.id, +el.dataset.i); render(); },
-  't-done': el => { taskDone(el.dataset.id, +el.dataset.i); const o = byId(el.dataset.id); if (o && o.status === 'ready') toast(`№${o.no} готов — передан официанту`, 'ok'); render(); },
-  't-pack': el => { packDone(el.dataset.id); const o = byId(el.dataset.id); if (o && o.status === 'ready') toast(`№${o.no} упакован — передан официанту`, 'ok'); render(); },
+  'ca-tab': el => { UI.caTab = el.dataset.v; render(); },
+  'ca-runner': el => { UI.modal = { kind: 'runner', id: el.dataset.id }; render(); },
+  'ca-print': el => { raPrinted(el.dataset.id); const o = byId(el.dataset.id); UI.modal = null; if (o) toast(`Бегунок №${o.no} отнесён на кухню`, 'ok'); render(); },
 
   'w-tab': el => { UI.wTab = el.dataset.v; render(); },
   'w-take': el => { const c = takeOrder(el.dataset.id); const o = byId(el.dataset.id); if (o && o.status === 'delivering') toast(c ? `№${o.no}: ячейка ${c.id}, QR на экране` : `№${o.no} в рейсе`, 'ok'); render(); },
-  'w-takeall': () => { ordersList().filter(o => o.mode === 'gym' && o.status === 'ready').forEach(o => takeOrder(o.id)); toast('Все готовые заказы в рейсе', 'ok'); render(); },
   'w-cell': el => { allocateCell(el.dataset.id); render(); },
   'w-scan': el => { const c = S.lockers.cells.find(x => x.id === el.dataset.id); if (!c) return; const r = lockerScan(c.depTok); UI.lockMsg = r; toast(r.msg, r.ok ? 'ok' : 'warn', 5000); render(); },
   'w-cup': el => { cupPlaced(el.dataset.id); const o = byId(el.dataset.id); toast(`№${o.no}: заказ доставлен на стойку — клиент видит, что стакан ждёт его`, 'ok'); render(); },
@@ -3035,67 +2880,23 @@ const ACT = {
   'm-hit': el => { const d = DISH[el.dataset.id]; d.hit = !d.hit; saveCatalog(); toast(d.hit ? '«' + d.name + '» — хит дня' : 'Убрано из хитов'); render(); },
   'm-stop': el => { const d = DISH[el.dataset.id]; d.stop = !d.stop; saveCatalog(); render(); },
   'm-apply-sale': el => { const d = DISH[el.dataset.id]; d.discount = +el.dataset.v; saveCatalog(); toast('Скидка ' + d.discount + '% на «' + d.name + '» уже на сайте', 'ok'); render(); },
-  'm-new': () => { UI.editDish = { id: uid('d'), name: '', type: 'hot', station: 'hot', goals: [], price: 400, weight: '300 г', kcal: 400, p: 30, f: 12, c: 40, cook: 12, emoji: '🍽️', pop: 3, desc: '', serves: 1, recipe: [{ ing: 'chicken', qty: 150 }], hit: false, discount: 0, stop: false }; UI.modal = { kind: 'edit' }; render(); },
+  'm-new': () => { UI.editDish = { id: uid('d'), name: '', type: 'hot', station: 'hot', goals: [], price: 400, weight: '300 г', kcal: 400, p: 30, f: 12, c: 40, cook: 12, emoji: '🍽️', pop: 3, desc: '', serves: 1, recipe: [], rc: '', hit: false, discount: 0, stop: false }; UI.modal = { kind: 'edit' }; render(); },
   'm-edit': el => { UI.editDish = clone(DISH[el.dataset.id]); UI.modal = { kind: 'edit' }; render(); },
   'ed-goal': el => { const g = el.dataset.v, a = UI.editDish.goals; UI.editDish.goals = a.includes(g) ? a.filter(x => x !== g) : a.concat(g); render(); },
-  'ed-addrow': () => { UI.editDish.recipe.push({ ing: S.catalog.ingredients[0].id, qty: 100 }); render(); },
-  'ed-delrow': el => { UI.editDish.recipe.splice(+el.dataset.i, 1); render(); },
   'ed-save': () => {
     const d = UI.editDish; if (!d.name.trim()) { toast('Укажите название', 'warn'); return; }
     ['price', 'kcal', 'p', 'f', 'c', 'cook', 'serves'].forEach(k => { d[k] = +d[k] || 0; }); d.serves = d.serves || 1; d.cook = Math.max(1, d.cook);
-    d.recipe = d.recipe.filter(r => r.qty > 0);
+    d.rc = String(d.rc || '').trim();
     const ix = S.catalog.dishes.findIndex(x => x.id === d.id); if (ix >= 0) S.catalog.dishes[ix] = d; else S.catalog.dishes.push(d);
     saveCatalog(); UI.modal = null; UI.editDish = null; toast('Блюдо сохранено и уже на сайте', 'ok'); render();
   },
   'ed-delete': () => { if (!UI.confirmDel) { UI.confirmDel = true; render(); return; } S.catalog.dishes = S.catalog.dishes.filter(x => x.id !== UI.editDish.id); saveCatalog(); UI.modal = null; UI.editDish = null; UI.confirmDel = false; toast('Блюдо удалено'); render(); },
-  op: el => { UI.modal = { kind: 'op', type: el.dataset.v, ing: el.dataset.ing || S.catalog.ingredients[0].id, dish: S.catalog.dishes[0].id, qty: el.dataset.v === 'hall' ? 1 : null, note: '' }; render(); },
-  'op-save': () => {
-    const m = UI.modal, i = ING[m.ing];
-    if (m.type === 'hall') { const d = DISH[m.dish], q = +m.qty || 0; if (!d || q <= 0) return; writeOffItems([{ d: d.id, q }], 'hall', 'Зал: ' + d.name + ' × ' + q); saveCatalog(); toast('Списано по техкарте: ' + d.name + ' × ' + q, 'ok'); }
-    else {
-      const q = +m.qty; if (!i || m.qty === '' || m.qty == null || !(q >= 0)) { toast('Укажите количество', 'warn'); return; }
-      if (m.type === 'in') { i.stock += q; addMove(i.id, q, 'in', m.note || 'Приход'); }
-      if (m.type === 'waste') { const w = Math.min(q, i.stock); i.stock -= w; addMove(i.id, -w, 'waste', m.note || 'Списание'); }
-      if (m.type === 'inv') { const diff = q - i.stock; i.stock = q; addMove(i.id, diff, 'inv', m.note || (diff >= 0 ? 'Излишек' : 'Недостача')); }
-      saveCatalog(); toast('Проведено: ' + i.name, 'ok');
-    }
-    UI.modal = null; render();
-  },
-  'p-promo': () => { S.catalog.settings.promo = !S.catalog.settings.promo; saveCatalog(); render(); },
-  'p-all': () => { UI.pAll = !UI.pAll; render(); },
-  'p-generate': () => {
-    const groups = {};
-    S.catalog.ingredients.forEach(i => { const r = planRow(i, UI.pChoice[i.id] || defaultSupplier(i)); if (r.qty > 0) (groups[r.sup.id] = groups[r.sup.id] || { next: r.next, items: [] }).items.push([i.id, r.qty]); });
-    const n = Object.keys(groups).length;
-    Object.entries(groups).forEach(([sid, g]) => S.catalog.pos.unshift(makePO(S.catalog, sid, 'draft', g.next, g.items)));
-    saveCatalog(); toast('Создано заявок: ' + n + '. Проверьте и отправьте поставщикам.', 'ok'); render();
-  },
-  'po-send': el => {
-    const p = S.catalog.pos.find(x => x.id === el.dataset.id); if (!p) return; const s = SUP[p.supplierId];
-    const text = `Заявка от кафе «Этажом ниже»\nПоставщик: ${s.name}\nДата поставки: ${fmtDate(p.deliveryDate)}\n\n` + p.items.map(it => `• ${ING[it.ing].name} — ${fmtQty(it.qty, ING[it.ing].unit)}`).join('\n') + `\n\nИтого ≈ ${fmtRub(p.total)}`;
-    try { navigator.clipboard.writeText(text).then(() => toast('Текст заявки скопирован — вставьте в письмо или мессенджер'), () => { }); } catch (e) { }
-    p.status = 'sent'; p.sentAt = Date.now(); saveCatalog(); toast('Заявка отправлена: ' + s.name, 'ok'); render();
-  },
-  'po-del': el => { S.catalog.pos = S.catalog.pos.filter(x => x.id !== el.dataset.id); saveCatalog(); render(); },
-  'po-recv': el => { UI.modal = { kind: 'receive', id: el.dataset.id }; UI.rcv = null; render(); },
-  'po-recv-ok': el => {
-    const p = S.catalog.pos.find(x => x.id === el.dataset.id); if (!p) return;
-    p.items.forEach((it, ix) => { const q = UI.rcv && UI.rcv[ix] != null ? +UI.rcv[ix] : it.qty; const i = ING[it.ing]; if (!i || !(q > 0)) return; i.stock += q; addMove(i.id, q, 'in', 'Приёмка: ' + SUP[p.supplierId].name); it.got = q; });
-    p.status = 'received'; p.receivedAt = Date.now(); saveCatalog(); UI.modal = null; UI.rcv = null; toast('Поставка принята, остатки обновлены', 'ok'); render();
-  },
 };
-const KDS_HOLD = {};
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (el.classList.contains('overlay') && e.target !== el) return;
   const fn = ACT[el.dataset.act]; if (!fn) return;
   if (el.tagName === 'A') e.preventDefault();
-  /* кухня на планшете: двойное касание не должно сразу «начать» и «закончить» задачу */
-  if (['t-start', 't-done', 't-pack'].includes(el.dataset.act)) {
-    const key = el.dataset.id + ':' + (el.dataset.i || ''), now = Date.now();
-    if ((KDS_HOLD[key] || 0) > now) return;
-    KDS_HOLD[key] = now + 1500; setTimeout(() => { delete KDS_HOLD[key]; render(); }, 1500);
-  }
   fn(el, e);
 });
 document.addEventListener('keydown', e => {
@@ -3118,9 +2919,6 @@ document.addEventListener('input', e => {
   if (ds.f === 'q') { UI.q = t.value; renderSoon(160); return; }
   if (ds.ui) { UI[ds.ui] = t.value; if (ds.ui !== 'lockIn') renderSoon(160); return; }
   if (ds.ed) { UI.editDish[ds.ed] = t.value; return; }
-  if (ds.edr) { const r = UI.editDish.recipe[+ds.i]; if (r) r[ds.edr] = ds.edr === 'qty' ? +t.value : t.value; return; }
-  if (ds.op) { UI.modal[ds.op] = t.value; return; }
-  if (ds.rcv != null) { UI.rcv = UI.rcv || {}; UI.rcv[+ds.rcv] = t.value; return; }
   if (ds.set) { S.catalog.settings[ds.set] = +t.value; _cache = {}; renderSoon(80); return; }
 });
 document.addEventListener('change', e => {
@@ -3132,18 +2930,17 @@ document.addEventListener('change', e => {
   if (ds.set) { S.catalog.settings[ds.set] = +t.value; saveCatalog(); render(); return; }
   if (ds.lset) { const L = lset(); L[ds.lset] = t.type === 'checkbox' ? t.checked : Math.max(0, +t.value || 0); saveCatalog(); toast('Правила программы сохранены — действуют для новых заказов', 'ok'); render(); return; }
   if (ds.fset) { const f = fset(), num = ['cardFee', 'sbpFee', 'feeVat'].includes(ds.fset); f[ds.fset] = t.type === 'checkbox' ? t.checked : num ? Math.max(0, +String(t.value).replace(',', '.') || 0) : t.value; saveCatalog(); toast('Настройки кассы сохранены — действуют для новых заказов', 'ok'); render(); return; }
-  if (ds.setp) { const [a, b] = ds.setp.split('.'); const v = Math.max(0, +t.value || 0); if (b) S.catalog.settings[a][b] = a === 'stations' ? Math.max(1, v) : v; else S.catalog.settings[a] = v; saveCatalog(); toast('Планировщик пересчитал задачи'); render(); return; }
-  if (ds.pchoice != null) { UI.pChoice[ds.id] = t.value; render(); return; }
+  if (ds.setp) { const [a, b] = ds.setp.split('.'); const v = Math.max(0, +t.value || 0); if (b) S.catalog.settings[a][b] = a === 'stations' ? Math.max(1, v) : v; else S.catalog.settings[a] = v; saveCatalog(); toast('Ближайшее время на сайте пересчитано'); render(); return; }
+  if (ds.rc != null) { const d = DISH[ds.id]; if (!d) return; d.rc = t.value.trim(); saveCatalog(); toast(d.rc ? `Код РестАрт для «${d.name}»: ${d.rc}` : `У «${d.name}» нет кода РестАрт`, d.rc ? 'ok' : 'warn'); render(); return; }
   if (ds.ed) { UI.editDish[ds.ed] = t.value; if (['type', 'price', 'station'].includes(ds.ed)) render(); return; }
-  if (ds.edr) { const r = UI.editDish.recipe[+ds.i]; if (r) r[ds.edr] = ds.edr === 'qty' ? +t.value : t.value; render(); return; }
-  if (ds.op) { UI.modal[ds.op] = t.value; if (ds.op === 'ing' || ds.op === 'dish') render(); return; }
 });
 function onOrdersChanged(before) {
   notifyMyOrders(before);
   Object.values(S.orders).forEach(o => {
     const b = before[o.id];
-    if (!b && o.status === 'paid' && UI.app === 'kitchen') toast(`Новый заказ №${o.no} · к ${fmtTime(o.readyAt)} · планировщик поставил задачи`, 'ok', 6000);
-    if (b && b.status !== 'ready' && o.status === 'ready' && UI.app === 'waiter') toast(`№${o.no} готов к выносу (${whereLabel(o)})`, 'ok', 6000);
+    if (!b && o.status === 'paid' && UI.app === 'cashier') toast(`Новый заказ с сайта №${o.no} · к ${fmtTime(o.readyAt)} — напечатайте бегунок`, 'ok', 6000);
+    if (!b && o.status === 'paid' && UI.app === 'waiter') toast(`Новый заказ №${o.no} · к ${fmtTime(o.readyAt)} (${whereLabel(o)})`, 'ok', 6000);
+    if (b && b.status === 'paid' && o.status === 'cancelled' && ['cashier', 'waiter'].includes(UI.app)) toast(`№${o.no} отменён клиентом — не готовить`, 'warn', 8000);
   });
 }
 
